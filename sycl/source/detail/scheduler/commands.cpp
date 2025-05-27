@@ -2730,10 +2730,12 @@ void enqueueImpKernel(
     EliminatedArgMask = SyclKernelImpl->getKernelArgMask();
     KernelMutex = SyclKernelImpl->getCacheMutex();
   } else {
-    std::tie(Kernel, KernelMutex, EliminatedArgMask, Program) =
-        detail::ProgramManager::getInstance().getOrCreateKernel(
-            ContextImpl, DeviceImpl, KernelName, KernelNameBasedCachePtr,
-            NDRDesc, true /*Transfer ownership of kernel and program objects to cache.*/);
+    std::tie(
+        Kernel, KernelMutex, EliminatedArgMask,
+        Program) = detail::ProgramManager::getInstance()
+                       .getOrCreateKernel(
+                           ContextImpl, DeviceImpl,
+                           KernelName, KernelNameBasedCachePtr, NDRDesc, true /*Transfer ownership of kernel and program objects to cache.*/);
   }
 
   // We may need more events for the launch, so we make another reference.

@@ -899,7 +899,8 @@ ur_program_handle_t ProgramManager::getBuiltURProgram(
             std::back_inserter(AllImages));
 
   return getBuiltURProgram(std::move(AllImages), ContextImpl,
-                           {std::move(Device)}, nullptr, {}, TransferOwnershipToCache);
+                           {std::move(Device)}, nullptr, {},
+                           TransferOwnershipToCache);
 }
 
 ur_program_handle_t ProgramManager::getBuiltURProgram(
@@ -1152,9 +1153,8 @@ ProgramManager::getOrCreateKernel(
     }
   }
 
-  ur_program_handle_t Program =
-      getBuiltURProgram(ContextImpl, DeviceImpl, KernelName, NDRDesc,
-      TransferOwnershipToCache);
+  ur_program_handle_t Program = getBuiltURProgram(
+      ContextImpl, DeviceImpl, KernelName, NDRDesc, TransferOwnershipToCache);
 
   auto BuildF = [this, &Program, &KernelName, &ContextImpl] {
     ur_kernel_handle_t Kernel = nullptr;
