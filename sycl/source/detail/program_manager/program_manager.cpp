@@ -851,7 +851,8 @@ CheckAndDecompressImage([[maybe_unused]] RTDeviceBinaryImage *Img) {
 // its ref count incremented.
 ur_program_handle_t ProgramManager::getBuiltURProgram(
     const ContextImplPtr &ContextImpl, device_impl &DeviceImpl,
-    KernelNameStrRefT KernelName, const NDRDescT &NDRDesc) {
+    KernelNameStrRefT KernelName, const NDRDescT &NDRDesc,
+    const bool TransferOwnershipToCache) {
   device_impl *RootDevImpl;
   ur_bool_t MustBuildOnSubdevice = true;
 
@@ -898,13 +899,13 @@ ur_program_handle_t ProgramManager::getBuiltURProgram(
             std::back_inserter(AllImages));
 
   return getBuiltURProgram(std::move(AllImages), ContextImpl,
-                           {std::move(Device)});
+                           {std::move(Device)}, nullptr, {}, TransferOwnershipToCache);
 }
 
 ur_program_handle_t ProgramManager::getBuiltURProgram(
     const BinImgWithDeps &ImgWithDeps, const ContextImplPtr &ContextImpl,
     const std::vector<device> &Devs, const DevImgPlainWithDeps *DevImgWithDeps,
-    const SerializedObj &SpecConsts) {
+    const SerializedObj &SpecConsts, const bool TransferOwnershipToCache) {
   std::string CompileOpts;
   std::string LinkOpts;
   applyOptionsFromEnvironment(CompileOpts, LinkOpts);
@@ -1048,7 +1049,7 @@ ur_program_handle_t ProgramManager::getBuiltURProgram(
   // If we linked any extra device images, then we need to
   // cache them as well.
   auto CacheLinkedImages = [&Adapter, &Cache, &CacheKey, &ResProgram,
-                            &ImgWithDeps] {
+                            &ImgWithDeps, &TransferOwnershipToCache] {
     for (auto It = ImgWithDeps.depsBegin(); It != ImgWithDeps.depsEnd(); ++It) {
       const RTDeviceBinaryImage *BImg = *It;
       // CacheKey is captured by reference by GetCachedBuildF, so we can simply
@@ -1057,7 +1058,7 @@ ur_program_handle_t ProgramManager::getBuiltURProgram(
       bool DidInsert = Cache.insertBuiltProgram(CacheKey, ResProgram);
       // Add to the eviction list.
       Cache.registerProgramFetch(CacheKey, ResProgram, DidInsert);
-      if (DidInsert) {
+      if (DidInsert && !TransferOwnershipToCache) {
         // For every cached copy of the program, we need to increment its
         // refcount
         Adapter->call<UrApiKind::urProgramRetain>(ResProgram);
@@ -1090,7 +1091,7 @@ ur_program_handle_t ProgramManager::getBuiltURProgram(
       // Change device in the cache key to reduce copying of spec const data.
       CacheKey.second = std::move(Subset);
       bool DidInsert = Cache.insertBuiltProgram(CacheKey, ResProgram);
-      if (DidInsert) {
+      if (DidInsert && !TransferOwnershipToCache) {
         // For every cached copy of the program, we need to increment its
         // refcount
         Adapter->call<UrApiKind::urProgramRetain>(ResProgram);
@@ -1105,7 +1106,9 @@ ur_program_handle_t ProgramManager::getBuiltURProgram(
   // stored in the cache, and one handle is returned to the
   // caller. In that case, we need to increase the ref count of the
   // program.
-  Adapter->call<UrApiKind::urProgramRetain>(ResProgram);
+  if (!TransferOwnershipToCache)
+    Adapter->call<UrApiKind::urProgramRetain>(ResProgram);
+
   return ResProgram;
 }
 // When caching is enabled, the returned UrProgram and UrKernel will
@@ -1150,7 +1153,8 @@ ProgramManager::getOrCreateKernel(
   }
 
   ur_program_handle_t Program =
-      getBuiltURProgram(ContextImpl, DeviceImpl, KernelName, NDRDesc);
+      getBuiltURProgram(ContextImpl, DeviceImpl, KernelName, NDRDesc,
+      TransferOwnershipToCache);
 
   auto BuildF = [this, &Program, &KernelName, &ContextImpl] {
     ur_kernel_handle_t Kernel = nullptr;
