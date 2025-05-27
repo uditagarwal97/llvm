@@ -158,7 +158,8 @@ TEST_P(MultipleDeviceCacheTest, ProgramRetain) {
     // MultipleDevsCacheTestKernel.
     EXPECT_EQ(BundleImpl->size(), size_t{1});
 
-    int NumRetains = BundleImpl->size() * std::pow(2, NumDevices) - 1;
+    // '-2' because fetching the same program from cache won't call retain.
+    int NumRetains = BundleImpl->size() * std::pow(2, NumDevices) - 2;
     EXPECT_EQ(RetainCounter, NumRetains)
         << "Expect " << NumRetains << " piProgramRetain calls";
 

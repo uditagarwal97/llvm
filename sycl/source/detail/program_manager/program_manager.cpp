@@ -1059,7 +1059,7 @@ ur_program_handle_t ProgramManager::getBuiltURProgram(
       bool DidInsert = Cache.insertBuiltProgram(CacheKey, ResProgram);
       // Add to the eviction list.
       Cache.registerProgramFetch(CacheKey, ResProgram, DidInsert);
-      if (DidInsert && !TransferOwnershipToCache) {
+      if (DidInsert) {
         // For every cached copy of the program, we need to increment its
         // refcount
         Adapter->call<UrApiKind::urProgramRetain>(ResProgram);
@@ -1092,7 +1092,7 @@ ur_program_handle_t ProgramManager::getBuiltURProgram(
       // Change device in the cache key to reduce copying of spec const data.
       CacheKey.second = std::move(Subset);
       bool DidInsert = Cache.insertBuiltProgram(CacheKey, ResProgram);
-      if (DidInsert && !TransferOwnershipToCache) {
+      if (DidInsert) {
         // For every cached copy of the program, we need to increment its
         // refcount
         Adapter->call<UrApiKind::urProgramRetain>(ResProgram);
