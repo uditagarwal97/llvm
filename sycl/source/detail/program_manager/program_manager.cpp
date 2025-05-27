@@ -1115,7 +1115,8 @@ std::tuple<ur_kernel_handle_t, std::mutex *, const KernelArgMask *,
 ProgramManager::getOrCreateKernel(
     const ContextImplPtr &ContextImpl, device_impl &DeviceImpl,
     KernelNameStrRefT KernelName,
-    KernelNameBasedCacheT *KernelNameBasedCachePtr, const NDRDescT &NDRDesc) {
+    KernelNameBasedCacheT *KernelNameBasedCachePtr, const NDRDescT &NDRDesc,
+    const bool TransferOwnershipToCache) {
   if constexpr (DbgProgMgr > 0) {
     std::cerr << ">>> ProgramManager::getOrCreateKernel(" << ContextImpl.get()
               << ", " << &DeviceImpl << ", " << KernelName << ")\n";
