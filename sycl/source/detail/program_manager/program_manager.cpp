@@ -1050,7 +1050,7 @@ ur_program_handle_t ProgramManager::getBuiltURProgram(
   // If we linked any extra device images, then we need to
   // cache them as well.
   auto CacheLinkedImages = [&Adapter, &Cache, &CacheKey, &ResProgram,
-                            &ImgWithDeps, &TransferOwnershipToCache] {
+                            &ImgWithDeps] {
     for (auto It = ImgWithDeps.depsBegin(); It != ImgWithDeps.depsEnd(); ++It) {
       const RTDeviceBinaryImage *BImg = *It;
       // CacheKey is captured by reference by GetCachedBuildF, so we can simply

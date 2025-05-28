@@ -2703,6 +2703,8 @@ void enqueueImpKernel(
 
   std::shared_ptr<kernel_impl> SyclKernelImpl;
   std::shared_ptr<device_image_impl> DeviceImageImpl;
+  // Transfer ownership only of cache is enabled.
+  const bool TransferownerShipToCache =  SYCLConfig<SYCL_CACHE_IN_MEM>::get();
 
   if (nullptr != MSyclKernel) {
     assert(MSyclKernel->get_info<info::kernel::context>() ==
@@ -2735,7 +2737,8 @@ void enqueueImpKernel(
         Program) = detail::ProgramManager::getInstance()
                        .getOrCreateKernel(
                            ContextImpl, DeviceImpl,
-                           KernelName, KernelNameBasedCachePtr, NDRDesc, true /*Transfer ownership of kernel and program objects to cache.*/);
+                           KernelName, KernelNameBasedCachePtr, NDRDesc,
+                           TransferownerShipToCache);
   }
 
   // We may need more events for the launch, so we make another reference.
@@ -2785,7 +2788,7 @@ void enqueueImpKernel(
     // them here, as they will be released when the cache is destroyed or
     // when the kernel is evicted from the cache.
     if (!SyclKernelImpl && !MSyclKernel &&
-        !SYCLConfig<SYCL_CACHE_IN_MEM>::get()) {
+        !TransferownerShipToCache) {
       // If cache is disabled, we need to release the kernel and program.
       const AdapterPtr &Adapter = Queue->getAdapter();
       Adapter->call<UrApiKind::urKernelRelease>(Kernel);
