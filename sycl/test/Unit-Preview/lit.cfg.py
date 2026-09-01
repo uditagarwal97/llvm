@@ -55,6 +55,14 @@ for symbolizer in ["ASAN_SYMBOLIZER_PATH", "MSAN_SYMBOLIZER_PATH"]:
 llvm_symbolizer = os.path.join(config.llvm_tools_dir, "llvm-symbolizer")
 config.environment["LLVM_SYMBOLIZER_PATH"] = llvm_symbolizer
 
+# Ignore leaks that come from libraries this project does not build, e.g. the
+# Level Zero loader's global context, which the tests that enumerate real
+# platforms pull in. Only used when the runtime was built with the address
+# sanitizer; harmless otherwise.
+config.environment["LSAN_OPTIONS"] = "suppressions=" + os.path.join(
+    os.path.dirname(__file__), os.pardir, "lsan_suppressions.txt"
+)
+
 
 def find_shlibpath_var():
     if platform.system() in ["Linux", "FreeBSD", "NetBSD", "SunOS"]:
