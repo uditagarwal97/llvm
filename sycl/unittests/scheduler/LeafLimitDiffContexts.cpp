@@ -144,7 +144,15 @@ TEST_F(SchedulerTest, LeafLimitDiffContexts) {
   // ConnectCmd is created internally in scheduler and not a mock object
   // This fact leads to active scheduler shutdown process that deletes a
   // part of commands for record we store in AddedLeaves vector.
-  // We abort this process by removing record to avoid double release or
-  // or memory leaks
+  // We abort this process by removing record to avoid double release.
+  // The commands the graph builder created on its own (the connect command and
+  // the alloca commands) have to be deleted by hand then.
+  detail::Command *ConnectCmd = *ConnectCmdIt;
+  std::vector<detail::Command *> GraphOwnedCmds{
+      ExtQueue1.Rec->MAllocaCommands.begin(),
+      ExtQueue1.Rec->MAllocaCommands.end()};
   MS.removeRecordForMemObj(MockReq.MSYCLMemObj);
+  delete ConnectCmd;
+  for (detail::Command *Cmd : GraphOwnedCmds)
+    delete Cmd;
 }

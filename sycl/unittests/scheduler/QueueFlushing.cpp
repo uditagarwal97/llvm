@@ -254,4 +254,12 @@ TEST_F(SchedulerTest, QueueFlushing) {
     MockScheduler::enqueueCommand(&CmdA, Res, detail::NON_BLOCKING);
     EXPECT_FALSE(EventStatusQueried);
   }
+
+  // AllocaCmd is a stack object with no matching release command, so free its
+  // allocation by hand: both the one set up above and the one the enqueue
+  // replaced it with.
+  if (AllocaCmd.MMemAllocation != URBuf)
+    mock::releaseDummyHandle(
+        static_cast<ur_mem_handle_t>(AllocaCmd.MMemAllocation));
+  mock::releaseDummyHandle(URBuf);
 }
