@@ -898,7 +898,13 @@ protected:
                                                             RHS.second);
     }
   };
-  std::map<AsyncExceptionKey, exception_list, AsyncExceptionKeyOwnerLess>
+  struct AsyncExceptionEntry {
+    exception_list Exceptions;
+    // The handler of the submitting queue, remembered here because the queue
+    // may be destroyed before the exceptions are flushed.
+    async_handler Handler;
+  };
+  std::map<AsyncExceptionKey, AsyncExceptionEntry, AsyncExceptionKeyOwnerLess>
       MAsyncExceptions;
 
   friend class Command;

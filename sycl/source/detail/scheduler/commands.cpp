@@ -414,14 +414,16 @@ public:
     AsyncCodeLocationPtr.reset();
 #endif
 
+    // NotifyHostTaskCompletion() may destroy MThisCmd, so query anything we
+    // still need from it up front.
+    auto QueuePtr = MThisCmd->MEvent->getSubmittedQueue();
     try {
       // If we enqueue blocked users - ur level could throw exception that
       // should be treated as async now.
       Scheduler::getInstance().NotifyHostTaskCompletion(MThisCmd);
     } catch (...) {
-      auto CurrentException = std::current_exception();
-      auto QueuePtr = MThisCmd->MEvent->getSubmittedQueue();
-      Scheduler::getInstance().reportAsyncException(QueuePtr, CurrentException);
+      Scheduler::getInstance().reportAsyncException(QueuePtr,
+                                                    std::current_exception());
     }
   }
 };
