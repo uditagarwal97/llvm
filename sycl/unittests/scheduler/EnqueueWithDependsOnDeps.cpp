@@ -15,6 +15,7 @@
 
 #include <sycl/usm.hpp>
 
+#include <set>
 #include <vector>
 
 namespace {
@@ -49,7 +50,30 @@ protected:
     QueueDevImpl = getSyclObjImpl(QueueDev);
   }
 
-  void TearDown() {}
+  void TearDown() {
+    // A host task's completion path keeps using its command after the event is
+    // marked complete, so the worker threads have to be done before anything is
+    // deleted below. The host task lambdas only take the fixture's mutex, which
+    // every test releases before returning, so this cannot deadlock.
+    detail::GlobalHandler::instance().drainThreadPool();
+
+    // Commands built here are owned by the graph and are normally deleted by
+    // post-enqueue cleanup, which this fixture disables. Take over the
+    // commands the runtime deferred instead of cleaning up (they would be
+    // deleted twice otherwise), re-enable cleanup and delete everything.
+    for (detail::Command *Cmd : MockScheduler::takeDeferredCleanupCommands())
+      CreatedCommands.insert(Cmd);
+    unittest::unset_env(DisableCleanupName);
+    detail::SYCLConfig<detail::SYCL_DISABLE_EXECUTION_GRAPH_CLEANUP>::reset();
+    MS.cleanupCommands({CreatedCommands.begin(), CreatedCommands.end()});
+    CreatedCommands.clear();
+  }
+
+  void trackCommand(const event &Ev) {
+    if (auto *Cmd =
+            static_cast<detail::Command *>(getSyclObjImpl(Ev)->getCommand()))
+      CreatedCommands.insert(Cmd);
+  }
 
   detail::Command *
   AddTaskCG(TestCGType Type, const std::vector<EventImplPtr> &Events,
@@ -84,6 +108,7 @@ protected:
                  Type == TestCGType::HOST_TASK ? nullptr : QueueDevImpl.get(),
                  ToEnqueue, /*EventNeeded=*/true);
     EXPECT_EQ(ToEnqueue.size(), 0u);
+    CreatedCommands.insert(NewCmd);
     return NewCmd;
   }
 
@@ -155,6 +180,7 @@ protected:
       detail::SYCLConfig<detail::SYCL_DISABLE_EXECUTION_GRAPH_CLEANUP>::reset};
   MockScheduler MS;
 
+  std::set<detail::Command *> CreatedCommands;
   std::shared_ptr<detail::queue_impl> QueueDevImpl;
 
   std::mutex m;
@@ -320,8 +346,10 @@ TEST_F(DependsOnTests, DISABLED_ShortcutFunctionWithWaitList) {
 #else
 TEST_F(DependsOnTests, ShortcutFunctionWithWaitList) {
 #endif
-  mock::getCallbacks().set_before_callback("urEnqueueUSMMemcpy",
-                                           &redefinedextUSMEnqueueMemcpy);
+  // Replace, not before: the default mock would overwrite the event handle
+  // set below, leaking it.
+  mock::getCallbacks().set_replace_callback("urEnqueueUSMMemcpy",
+                                            &redefinedextUSMEnqueueMemcpy);
   sycl::queue Queue = detail::createSyclObjFromImpl<queue>(QueueDevImpl);
 
   // Mock up an incomplete host task
@@ -361,10 +389,16 @@ TEST_F(DependsOnTests, ShortcutFunctionWithWaitList) {
   Queue.wait();
   sycl::free(FirstBuf, Queue);
   sycl::free(SecondBuf, Queue);
+
+  trackCommand(HostTaskEvent);
+  trackCommand(SingleTaskEvent);
+  trackCommand(ShortcutFuncEvent);
 }
 
 TEST_F(DependsOnTests, BarrierWithWaitList) {
-  mock::getCallbacks().set_before_callback(
+  // Replace, not before: the default mock would overwrite the event handle
+  // set below, leaking it.
+  mock::getCallbacks().set_replace_callback(
       "urEnqueueEventsWaitWithBarrierExt",
       &redefinedEnqueueEventsWaitWithBarrierExt);
   sycl::queue Queue = detail::createSyclObjFromImpl<queue>(QueueDevImpl);
@@ -390,10 +424,15 @@ TEST_F(DependsOnTests, BarrierWithWaitList) {
   Cmd->MEnqueueStatus = detail::EnqueueResultT::SyclEnqueueSuccess;
   EventsInWaitList.clear();
 
-  Queue.ext_oneapi_submit_barrier(std::vector<sycl::event>{SingleTaskEvent});
+  event BarrierEvent = Queue.ext_oneapi_submit_barrier(
+      std::vector<sycl::event>{SingleTaskEvent});
   EXPECT_NE(SingleTaskEventImpl.getHandle(), nullptr);
   ASSERT_EQ(EventsInWaitList.size(), 1u);
   EXPECT_EQ(EventsInWaitList[0], SingleTaskEventImpl.getHandle());
   Queue.wait();
+
+  trackCommand(HostTaskEvent);
+  trackCommand(SingleTaskEvent);
+  trackCommand(BarrierEvent);
 }
 } // anonymous namespace

@@ -27,26 +27,6 @@ using namespace sycl;
 
 inline constexpr auto HostUnifiedMemoryName = "SYCL_HOST_UNIFIED_MEMORY";
 
-int val;
-static ur_result_t redefinedEnqueueMemBufferMap(void *pParams) {
-  auto params = *static_cast<ur_enqueue_mem_buffer_map_params_t *>(pParams);
-  **params.pphEvent = reinterpret_cast<ur_event_handle_t>(new int{});
-  **params.pppRetMap = &val;
-  return UR_RESULT_SUCCESS;
-}
-
-static ur_result_t redefinedEnqueueMemUnmap(void *pParams) {
-  auto params = *static_cast<ur_enqueue_mem_unmap_params_t *>(pParams);
-  **params.pphEvent = reinterpret_cast<ur_event_handle_t>(new int{});
-  return UR_RESULT_SUCCESS;
-}
-
-static ur_result_t redefinedEnqueueMemBufferFill(void *pParams) {
-  auto params = *static_cast<ur_enqueue_mem_buffer_fill_params_t *>(pParams);
-  **params.pphEvent = reinterpret_cast<ur_event_handle_t>(new int{});
-  return UR_RESULT_SUCCESS;
-}
-
 static void verifyCleanup(detail::MemObjRecord *Record,
                           detail::AllocaCommandBase *AllocaCmd,
                           detail::Command *DeletedCmd, bool &CmdDeletedFlag) {
@@ -60,6 +40,19 @@ static void verifyCleanup(detail::MemObjRecord *Record,
                            [&](const detail::DepDesc &Dep) {
                              return Dep.MDepCommand == DeletedCmd;
                            }));
+}
+
+// Tears the record down the same way Scheduler::removeMemoryObject does: the
+// alloca commands have been enqueued, so their release commands have to be
+// enqueued as well to free the allocated memory.
+static void cleanupRecord(MockScheduler &MS, buffer<int, 1> &Buf,
+                          detail::MemObjRecord *Record) {
+  detail::EnqueueResultT Res;
+  for (detail::AllocaCommandBase *AllocaCmd : Record->MAllocaCommands)
+    MockScheduler::enqueueCommand(AllocaCmd->getReleaseCmd(), Res,
+                                  detail::BLOCKING);
+  MS.cleanupCommandsForRecord(Record);
+  MS.removeRecordForMemObj(&*detail::getSyclObjImpl(Buf));
 }
 
 // Check that any non-leaf commands enqueued as part of high level scheduler
@@ -155,11 +148,11 @@ static void checkCleanupOnEnqueue(MockScheduler &MS,
   // Check addCopyBack
   MockCmd = addNewMockCmds();
   LeafMockCmd->getEvent()->setHandle(
-      reinterpret_cast<ur_event_handle_t>(new int{}));
+      mock::createDummyHandle<ur_event_handle_t>());
   MS.addCopyBack(&MockReq);
   verifyCleanup(Record, AllocaCmd, MockCmd, CommandDeleted);
 
-  MS.removeRecordForMemObj(&*detail::getSyclObjImpl(Buf));
+  cleanupRecord(MS, Buf, Record);
 }
 
 static void checkCleanupOnLeafUpdate(
@@ -191,7 +184,7 @@ static void checkCleanupOnLeafUpdate(
   EXPECT_FALSE(CommandDeleted);
   SchedulerCall(Record);
   EXPECT_TRUE(CommandDeleted);
-  MS.removeRecordForMemObj(&*detail::getSyclObjImpl(Buf));
+  cleanupRecord(MS, Buf, Record);
 }
 
 TEST_F(SchedulerTest, PostEnqueueCleanup) {
@@ -201,13 +194,6 @@ TEST_F(SchedulerTest, PostEnqueueCleanup) {
       detail::SYCLConfig<detail::SYCL_HOST_UNIFIED_MEMORY>::reset};
   sycl::unittest::UrMock<> Mock;
   sycl::platform Plt = sycl::platform();
-  mock::getCallbacks().set_before_callback("urEnqueueMemBufferMap",
-                                           &redefinedEnqueueMemBufferMap);
-  mock::getCallbacks().set_before_callback("urEnqueueMemUnmap",
-                                           &redefinedEnqueueMemUnmap);
-  mock::getCallbacks().set_before_callback("urEnqueueMemBufferFill",
-                                           &redefinedEnqueueMemBufferFill);
-
   context Ctx{Plt};
   queue Queue{Ctx, default_selector_v};
   detail::queue_impl &QueueImpl = *detail::getSyclObjImpl(Queue);
@@ -246,21 +232,23 @@ TEST_F(SchedulerTest, PostEnqueueCleanup) {
   // Check cleanup on exceeding leaf limit.
   checkCleanupOnLeafUpdate(
       MS, &QueueImpl, Buf, MockReq, [&](detail::MemObjRecord *Record) {
-        std::vector<std::unique_ptr<MockCommand>> Leaves;
+        // The commands are added to the record, i.e. owned by the graph, and
+        // are deleted along with it.
+        std::vector<MockCommand *> Leaves;
         for (std::size_t I = 0;
              I < Record->MWriteLeaves.genericCommandsCapacity(); ++I)
-          Leaves.push_back(std::make_unique<MockCommand>(&QueueImpl, MockReq));
+          Leaves.push_back(new MockCommand(&QueueImpl, MockReq));
 
         detail::AllocaCommandBase *AllocaCmd = Record->MAllocaCommands[0];
         std::vector<detail::Command *> ToCleanUp;
-        for (std::unique_ptr<MockCommand> &MockCmd : Leaves) {
+        for (MockCommand *MockCmd : Leaves) {
           (void)MockCmd->addDep(detail::DepDesc(AllocaCmd, &MockReq, AllocaCmd),
                                 ToCleanUp);
-          MS.addNodeToLeaves(Record, MockCmd.get(), access::mode::read_write,
+          MS.addNodeToLeaves(Record, MockCmd, access::mode::read_write,
                              ToEnqueue);
         }
-        for (std::unique_ptr<MockCommand> &MockCmd : Leaves)
-          MS.updateLeaves({MockCmd.get()}, Record, access::mode::read_write,
+        for (MockCommand *MockCmd : Leaves)
+          MS.updateLeaves({MockCmd}, Record, access::mode::read_write,
                           ToCleanUp);
         EXPECT_TRUE(ToCleanUp.empty());
       });
@@ -317,19 +305,19 @@ TEST_F(SchedulerTest, StreamBufferDeallocation) {
   AttachSchedulerWrapper AttachScheduler{MSPtr};
   detail::EventImplPtr EventImplPtr;
   {
-    MockHandlerCustomFinalize MockCGH(QueueImpl,
-                                      /*CallerNeedsEvent=*/true);
     kernel_bundle KernelBundle =
         sycl::get_kernel_bundle<sycl::bundle_state::input>(
             QueueImpl.get_context());
     auto ExecBundle = sycl::build(KernelBundle);
-    MockCGH.use_kernel_bundle(ExecBundle);
-    stream Stream{1, 1, MockCGH};
-    MockCGH.addStream(detail::getSyclObjImpl(Stream));
-    MockCGH.single_task<TestKernel>([] {});
-    std::unique_ptr<detail::CG> CG = MockCGH.finalize();
-
-    EventImplPtr = MSPtr->addCG(std::move(CG), QueueImpl, /*EventNeeded=*/true);
+    // Submit through the queue: the stream flush command it appends is what
+    // takes the kernel command out of the leaves of the stream buffers, which
+    // in turn lets graph cleanup delete the command and release the buffers.
+    event Ev = Queue.submit([&](handler &CGH) {
+      CGH.use_kernel_bundle(ExecBundle);
+      stream Stream{1, 1, CGH};
+      CGH.single_task<TestKernel>([] {});
+    });
+    EventImplPtr = detail::getSyclObjImpl(Ev);
   }
 
   // The buffers should have been released with graph cleanup once the work is

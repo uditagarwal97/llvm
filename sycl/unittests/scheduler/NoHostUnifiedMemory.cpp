@@ -212,5 +212,9 @@ TEST_F(SchedulerTest, NoHostUnifiedMemory) {
 
     EXPECT_EQ(Record->MAllocaCommands.size(), 1U);
     EXPECT_EQ(InteropAlloca->MMemAllocation, MockInteropBuffer);
+
+    // buffer_impl retained the native handle, drop the reference owned by the
+    // test.
+    mock::releaseDummyHandle(MockInteropBuffer);
   }
 }

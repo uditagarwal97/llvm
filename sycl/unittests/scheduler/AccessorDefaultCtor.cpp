@@ -40,4 +40,8 @@ TEST_F(SchedulerTest, AccDefaultCtorDoesntAffectDepGraph) {
   // if MDeps is empty, accessor built from default ctor does not affect
   // dependency graph in accordance with SYCL 2020
   EXPECT_TRUE(NewCmd->MDeps.empty());
+
+  // The command is owned by the graph and is never enqueued here, so it has to
+  // be deleted explicitly.
+  MS.cleanupCommand(NewCmd, /*AllowUnsubmitted=*/true);
 }

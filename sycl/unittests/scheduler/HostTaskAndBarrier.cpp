@@ -9,7 +9,6 @@
 #include "SchedulerTest.hpp"
 #include "SchedulerTestUtils.hpp"
 
-#include <helpers/ScopedEnvVar.hpp>
 #include <helpers/TestKernel.hpp>
 #include <helpers/UrMock.hpp>
 
@@ -20,8 +19,6 @@
 namespace {
 using namespace sycl;
 using EventImplPtr = std::shared_ptr<sycl::detail::event_impl>;
-
-constexpr auto DisableCleanupName = "SYCL_DISABLE_EXECUTION_GRAPH_CLEANUP";
 
 class TestQueueImpl : public sycl::detail::queue_impl {
 public:
@@ -129,10 +126,6 @@ protected:
   }
 
   sycl::unittest::UrMock<> Mock;
-  sycl::unittest::ScopedEnvVar DisabledCleanup{
-      DisableCleanupName, "1",
-      sycl::detail::SYCLConfig<
-          detail::SYCL_DISABLE_EXECUTION_GRAPH_CLEANUP>::reset};
   std::shared_ptr<TestQueueImpl> QueueDevImpl;
 
   std::mutex m;
