@@ -152,6 +152,13 @@ namespace driver
                         mock::releaseDummyHandle(${item['name']});
                     %elif item['retain']:
                         mock::retainDummyHandle(${item['name']});
+                    ## Command handles have no release entry point: the command
+                    ## buffer owns them, so tie their lifetime to it.
+                    %elif 'type' in item and item['type'] == 'ur_exp_command_buffer_command_handle_t' and re.search(r"CommandBufferAppend.*Exp$", fname):
+                        // optional output handle
+                        if(${item['name']}) {
+                            *${item['name']} = mock::createDummyChildHandle<${item['type']}>(hCommandBuffer);
+                        }
                     %elif 'type' in item:
                         %if 'range' in item or ('optional' in item and item['optional']):
                         // optional output handle
