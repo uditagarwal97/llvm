@@ -333,6 +333,9 @@ TEST(USMMemcpy2DTest, USMMemops2DSupported) {
   EXPECT_EQ(LastMemcpy2D.srcPitch, (size_t)5 * sizeof(long));
   EXPECT_EQ(LastMemcpy2D.width, (size_t)4 * sizeof(long));
   EXPECT_EQ(LastMemcpy2D.height, (size_t)2);
+
+  sycl::free(Ptr1, Q);
+  sycl::free(Ptr2, Q);
 }
 
 // Tests that the right fallback kernels are called when a backend does not
@@ -373,6 +376,9 @@ TEST(USMMemcpy2DTest, USMMemops2DUnsupported) {
   Q.ext_oneapi_copy2d(Ptr1, 5, Ptr2, 8, 4, 2);
   EXPECT_TRUE(LastMemopsQuery == UR_CONTEXT_INFO_USM_MEMCPY2D_SUPPORT);
   EXPECT_EQ(LastEnqueuedKernel, USMMemcpyHelperKernelNameLong);
+
+  sycl::free(Ptr1, Q);
+  sycl::free(Ptr2, Q);
 }
 
 // Tests that the right paths are taken when the backend only supports native
@@ -419,6 +425,9 @@ TEST(USMMemcpy2DTest, USMFillSupportedOnly) {
   Q.ext_oneapi_copy2d(Ptr1, 5, Ptr2, 8, 4, 2);
   EXPECT_TRUE(LastMemopsQuery == UR_CONTEXT_INFO_USM_MEMCPY2D_SUPPORT);
   EXPECT_EQ(LastEnqueuedKernel, USMMemcpyHelperKernelNameLong);
+
+  sycl::free(Ptr1, Q);
+  sycl::free(Ptr2, Q);
 }
 
 // Tests that the right paths are taken when the backend only supports native
@@ -467,6 +476,9 @@ TEST(USMMemcpy2DTest, USMMemsetSupportedOnly) {
   Q.ext_oneapi_copy2d(Ptr1, 5, Ptr2, 8, 4, 2);
   EXPECT_TRUE(LastMemopsQuery == UR_CONTEXT_INFO_USM_MEMCPY2D_SUPPORT);
   EXPECT_EQ(LastEnqueuedKernel, USMMemcpyHelperKernelNameLong);
+
+  sycl::free(Ptr1, Q);
+  sycl::free(Ptr2, Q);
 }
 
 // Tests that the right paths are taken when the backend only supports native
@@ -525,6 +537,9 @@ TEST(USMMemcpy2DTest, USMMemcpySupportedOnly) {
   EXPECT_EQ(LastMemcpy2D.width, (size_t)4 * sizeof(long));
   EXPECT_EQ(LastMemcpy2D.height, (size_t)2);
   EXPECT_NE(LastEnqueuedKernel, USMMemcpyHelperKernelNameLong);
+
+  sycl::free(Ptr1, Q);
+  sycl::free(Ptr2, Q);
 }
 
 // Negative tests for cases where USM 2D memory operations are expected to throw
@@ -590,4 +605,7 @@ TEST(USMMemcpy2DTest, NegativeUSM2DOps) {
         << "Unexpected error code for ext_oneapi_copy2d with invalid "
            "destination pitch.";
   }
+
+  sycl::free(Ptr1, Q);
+  sycl::free(Ptr2, Q);
 }

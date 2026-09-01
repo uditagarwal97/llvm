@@ -444,6 +444,8 @@ TEST_F(CommandGraphTest, InOrderQueueMemsetAndGraph) {
   auto InOrderGraphExec = InOrderGraph.finalize();
   auto EventGraph = InOrderQueue.submit(
       [&](sycl::handler &CGH) { CGH.ext_oneapi_graph(InOrderGraphExec); });
+
+  sycl::free(TestData, InOrderQueue);
 }
 
 TEST_F(CommandGraphTest, InOrderQueueMemcpyAndGraph) {
@@ -504,6 +506,8 @@ TEST_F(CommandGraphTest, InOrderQueueMemcpyAndGraph) {
   auto InOrderGraphExec = InOrderGraph.finalize();
   auto EventGraph = InOrderQueue.submit(
       [&](sycl::handler &CGH) { CGH.ext_oneapi_graph(InOrderGraphExec); });
+
+  sycl::free(TestData, InOrderQueue);
 }
 
 // Validate that enqueuing a graph with

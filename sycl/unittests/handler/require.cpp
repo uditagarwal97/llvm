@@ -128,7 +128,8 @@ TEST(Require, checkIfAccBoundedToHandler) {
     // void copy(accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsPlaceholder> src,
     //           DestT* dest)
     {
-      int *ptr = new int(0);
+      int val = 0;
+      int *ptr = &val;
       try {
         sycl::buffer<int, 1> buf(&data, 1);
         sycl::accessor acc(buf);
@@ -154,7 +155,8 @@ TEST(Require, checkIfAccBoundedToHandler) {
     //           accessor<DestT, DestDims, DestMode, DestTgt, IsPlaceholder>
     //           dest)
     {
-      int *ptr = new int(0);
+      int val = 0;
+      int *ptr = &val;
       try {
         sycl::buffer<int, 1> buf(&data, 1);
         sycl::accessor acc(buf);

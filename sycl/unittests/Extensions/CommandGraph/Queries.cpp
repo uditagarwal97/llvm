@@ -166,4 +166,7 @@ TEST_F(CommandGraphTest, NodeTypeQueries) {
   auto NodeSubgraph = Graph.add(
       [&](sycl::handler &cgh) { cgh.ext_oneapi_graph(SubgraphExec); });
   ASSERT_EQ(NodeSubgraph.get_type(), experimental::node_type::subgraph);
+
+  sycl::free(PtrA, Queue);
+  sycl::free(PtrB, Queue);
 }

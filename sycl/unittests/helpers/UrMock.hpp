@@ -453,9 +453,21 @@ inline ur_result_t mock_urUsmP2PPeerAccessGetInfoExp(void *pParams) {
 
 inline ur_result_t mock_urVirtualMemReserve(void *pParams) {
   auto params = reinterpret_cast<ur_virtual_mem_reserve_params_t *>(pParams);
-  **params->pppStart = *params->ppStart
-                           ? const_cast<void *>(*params->ppStart)
-                           : mock::createDummyHandle<void *>(*params->psize);
+  // A caller-provided start address is echoed back as-is, so it is not a dummy
+  // handle and mock_urVirtualMemFree below must not release it. No in-tree
+  // caller does that, so catch it here rather than corrupting the heap later.
+  assert(!*params->ppStart &&
+         "the mock only supports reserving with a null start address");
+  **params->pppStart = mock::createDummyHandle<void *>(*params->psize);
+  return UR_RESULT_SUCCESS;
+}
+
+inline ur_result_t mock_urVirtualMemFree(void *pParams) {
+  auto params = reinterpret_cast<ur_virtual_mem_free_params_t *>(pParams);
+  // Mirrors mock_urVirtualMemReserve, which hands out a dummy handle as the
+  // range start. As with urUSMFree, the range is assumed to come from the mock,
+  // i.e. to have been reserved without a caller-provided start address.
+  mock::releaseDummyHandle(const_cast<void *>(*params->ppStart));
   return UR_RESULT_SUCCESS;
 }
 
@@ -618,6 +630,7 @@ public:
     ADD_DEFAULT_OVERRIDE(urUsmP2PPeerAccessGetInfoExp,
                          mock_urUsmP2PPeerAccessGetInfoExp)
     ADD_DEFAULT_OVERRIDE(urVirtualMemReserve, mock_urVirtualMemReserve)
+    ADD_DEFAULT_OVERRIDE(urVirtualMemFree, mock_urVirtualMemFree)
     ADD_DEFAULT_OVERRIDE(urVirtualMemGranularityGetInfo,
                          mock_urVirtualMemGranularityGetInfo)
     ADD_DEFAULT_OVERRIDE(urCommandBufferCreateExp,

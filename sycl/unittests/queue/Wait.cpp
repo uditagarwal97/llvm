@@ -137,6 +137,8 @@ TEST(QueueWait, QueueWaitTest) {
     ASSERT_EQ(TestContext.NEventsWaitedFor, 1);
     ASSERT_TRUE(TestContext.UrQueueFinishCalled);
   }
+
+  sycl::free(HostAlloc, Ctx);
 }
 
 } // namespace

@@ -120,12 +120,19 @@ thread_local bool TreatDeviceGlobalWriteEventAsCompleted = false;
 thread_local std::optional<ur_program_handle_t> ExpectedReadWriteURProgram =
     std::nullopt;
 
-static ur_result_t after_urUSMDeviceAlloc(void *pParams) {
+// Replaces the allocation instead of adjusting the pointer afterwards: the
+// default mock hands out a dummy handle, which would be leaked when the
+// pointer is swapped for the mock memory below.
+static ur_result_t replace_urUSMDeviceAlloc(void *pParams) {
   auto params = *static_cast<ur_usm_device_alloc_params_t *>(pParams);
   // Use the mock memory.
   **params.pppMem = MockDeviceGlobalMem;
   return UR_RESULT_SUCCESS;
 }
+
+// MockDeviceGlobalMem is not a dummy handle, so the default mock must not try
+// to release it as one.
+static ur_result_t replace_urUSMFree(void *) { return UR_RESULT_SUCCESS; }
 
 static ur_result_t after_urEnqueueUSMMemcpy(void *pParams) {
   auto params = *static_cast<ur_enqueue_usm_memcpy_params_t *>(pParams);
@@ -270,9 +277,12 @@ public:
   mock::getCallbacks().set_after_callback(#API, &after_##API)
 #define REDEFINE_AFTER_TEMPLATED(API, ...)                                     \
   mock::getCallbacks().set_after_callback(#API, &after_##API<__VA_ARGS__>)
+#define REDEFINE_REPLACE(API)                                                  \
+  mock::getCallbacks().set_replace_callback(#API, &replace_##API)
 
 TEST_F(DeviceGlobalTest, DeviceGlobalInitBeforeUse) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -299,7 +309,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalInitBeforeUse) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalInitialMemContents) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER(urEnqueueDeviceGlobalVariableRead);
 
@@ -321,7 +332,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalInitialMemContents) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalCopyToBeforeUseFull) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -346,7 +358,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalCopyToBeforeUseFull) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalMemcpyToBeforeUseFull) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -371,7 +384,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalMemcpyToBeforeUseFull) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalCopyToBeforeUsePartialNoOffset) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -395,7 +409,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalCopyToBeforeUsePartialNoOffset) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalMemcpyToBeforeUsePartialNoOffset) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -419,7 +434,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalMemcpyToBeforeUsePartialNoOffset) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalCopyToBeforeUsePartialWithOffset) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -443,7 +459,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalCopyToBeforeUsePartialWithOffset) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalInitBeforeMemcpyToPartialWithOffset) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -467,7 +484,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalInitBeforeMemcpyToPartialWithOffset) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalCopyFromBeforeUse) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -484,7 +502,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalCopyFromBeforeUse) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalMemcpyFromBeforeUse) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -501,7 +520,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalMemcpyFromBeforeUse) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalUseBeforeCopyTo) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);
@@ -523,7 +543,8 @@ TEST_F(DeviceGlobalTest, DeviceGlobalUseBeforeCopyTo) {
 }
 
 TEST_F(DeviceGlobalTest, DeviceGlobalUseBeforeMemcpyTo) {
-  REDEFINE_AFTER(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMDeviceAlloc);
+  REDEFINE_REPLACE(urUSMFree);
   REDEFINE_AFTER(urEnqueueUSMMemcpy);
   REDEFINE_AFTER_TEMPLATED(urEnqueueDeviceGlobalVariableWrite, true);
   REDEFINE_AFTER(urEventGetInfo);

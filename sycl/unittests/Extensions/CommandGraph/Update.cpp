@@ -144,6 +144,9 @@ TEST_F(CommandGraphTest, UpdateNodeTypeExceptions) {
       cgh.set_arg(0, DynObj);
       cgh.ext_oneapi_graph(SubgraphExec);
     }));
+
+    sycl::free(PtrA, Queue);
+    sycl::free(PtrB, Queue);
   };
 
   experimental::dynamic_parameter DynamicParam{int{}};
