@@ -147,7 +147,31 @@ public:
   [[nodiscard]] Command *addDep(EventImplPtr Event,
                                 std::vector<Command *> &ToCleanUp);
 
-  void addUser(Command *NewUser) { MUsers.insert(NewUser); }
+  void addUser(Command *NewUser) {
+    MUsers.insert(NewUser);
+    NewUser->MPredecessors.insert(this);
+  }
+
+  /// Drops the edge that makes OldUser a user of this command. Both halves have
+  /// to go together: erasing only from MUsers would leave OldUser's
+  /// MPredecessors pointing here, and this command's own teardown walks MUsers
+  /// and so would no longer know to repair it.
+  void removeUser(Command *OldUser) {
+    MUsers.erase(OldUser);
+    OldUser->MPredecessors.erase(this);
+  }
+
+  /// Removes this command from the graph edges of its neighbours so that no
+  /// surviving command is left holding a pointer to it. Must be called on
+  /// every path that deletes a command.
+  void unlinkFromNeighbours() {
+    for (Command *Pred : MPredecessors)
+      Pred->MUsers.erase(this);
+    for (Command *User : MUsers)
+      User->MPredecessors.erase(this);
+    MPredecessors.clear();
+    MUsers.clear();
+  }
 
   /// \return type of the command, e.g. Allocate, MemoryCopy.
   CommandType getType() const { return MType; }
@@ -319,6 +343,12 @@ public:
   std::vector<DepDesc> MDeps;
   /// Contains list of commands that depend on the command.
   std::unordered_set<Command *> MUsers;
+  /// Commands whose MUsers contains this command, i.e. the exact reverse of
+  /// MUsers. Maintained by addUser so that a command being deleted can unlink
+  /// itself from every neighbour. MDeps cannot be used for that: an edge added
+  /// through addDep(EventImplPtr) or by addEmptyCmd() has no MDeps entry, and
+  /// leaving such a half edge behind is a use-after-free.
+  std::unordered_set<Command *> MPredecessors;
   /// Indicates whether the command can be blocked from enqueueing.
   bool MIsBlockable = false;
   /// Counts the number of memory objects this command is a leaf for.
