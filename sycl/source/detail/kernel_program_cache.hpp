@@ -220,22 +220,24 @@ public:
       ur_program_handle_t,
       emhash8::HashMap<std::string_view, std::shared_ptr<KernelBuildResult>>>;
 
+  // Keeps shared ownership of a kernel's subcache. The subcache is owned by the
+  // corresponding DeviceKernelInfo, which can be destroyed before this cache is
+  // cleared (that happens when the device image owning the kernel name is
+  // unregistered while the runtime is still alive), hence the shared_ptr.
   class FastKernelSubcacheWrapper {
   public:
-    FastKernelSubcacheWrapper(FastKernelSubcacheT &Subcache,
+    FastKernelSubcacheWrapper(std::shared_ptr<FastKernelSubcacheT> Subcache,
                               ur_context_handle_t UrContext)
-        : MSubcachePtr{&Subcache}, MUrContext{UrContext} {}
+        : MSubcachePtr{std::move(Subcache)}, MUrContext{UrContext} {}
     FastKernelSubcacheWrapper(const FastKernelSubcacheWrapper &) = delete;
     FastKernelSubcacheWrapper(FastKernelSubcacheWrapper &&Other)
-        : MSubcachePtr{Other.MSubcachePtr}, MUrContext{Other.MUrContext} {
-      Other.MSubcachePtr = nullptr;
-    }
+        : MSubcachePtr{std::move(Other.MSubcachePtr)},
+          MUrContext{Other.MUrContext} {}
     FastKernelSubcacheWrapper &
     operator=(const FastKernelSubcacheWrapper &) = delete;
     FastKernelSubcacheWrapper &operator=(FastKernelSubcacheWrapper &&Other) {
-      MSubcachePtr = Other.MSubcachePtr;
+      MSubcachePtr = std::move(Other.MSubcachePtr);
       MUrContext = Other.MUrContext;
-      Other.MSubcachePtr = nullptr;
       return *this;
     };
 
@@ -258,7 +260,7 @@ public:
     FastKernelSubcacheT &get() { return *MSubcachePtr; }
 
   private:
-    FastKernelSubcacheT *MSubcachePtr = nullptr;
+    std::shared_ptr<FastKernelSubcacheT> MSubcachePtr;
     ur_context_handle_t MUrContext = nullptr;
   };
 
@@ -464,7 +466,7 @@ public:
 
   void saveKernel(std::string_view KernelName, ur_device_handle_t Device,
                   const FastKernelCacheValPtr &CacheVal,
-                  FastKernelSubcacheT &KernelSubcache) {
+                  const std::shared_ptr<FastKernelSubcacheT> &KernelSubcache) {
     if (SYCLConfig<SYCL_IN_MEM_CACHE_EVICTION_THRESHOLD>::
             isProgramCacheEvictionEnabled()) {
       // Save kernel in fast cache only if the corresponding program is also
@@ -488,10 +490,10 @@ public:
         std::string(KernelName),
         FastKernelSubcacheWrapper(KernelSubcache, getURContext()));
 
-    FastKernelSubcacheWriteLockT SubcacheLock{KernelSubcache.Mutex};
+    FastKernelSubcacheWriteLockT SubcacheLock{KernelSubcache->Mutex};
     ur_context_handle_t Context = getURContext();
-    KernelSubcache.Entries.emplace_back(FastKernelCacheKeyT(Device, Context),
-                                        CacheVal);
+    KernelSubcache->Entries.emplace_back(FastKernelCacheKeyT(Device, Context),
+                                         CacheVal);
   }
 
   // Expects locked program cache

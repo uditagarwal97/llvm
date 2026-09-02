@@ -15,6 +15,7 @@
 #include <sycl/detail/ur.hpp>
 #include <sycl/kernel_bundle.hpp>
 
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string_view>
@@ -93,7 +94,9 @@ public:
   void init(std::string_view KernelName);
   void setCompileTimeInfoIfNeeded(const CompileTimeKernelInfoTy &Info);
 
-  FastKernelSubcacheT &getKernelSubcache() { return MFastKernelSubcache; }
+  const std::shared_ptr<FastKernelSubcacheT> &getKernelSubcache() {
+    return MFastKernelSubcache;
+  }
 
   const std::optional<int> &getImplicitLocalArgPos() const {
     return MImplicitLocalArgPos;
@@ -126,7 +129,13 @@ public:
 private:
   bool isCompileTimeInfoSet() const { return KernelSize != 0; }
 
-  FastKernelSubcacheT MFastKernelSubcache;
+  // Shared ownership is required: instances of KernelProgramCache keep a
+  // reference to this subcache (see FastKernelSubcacheWrapper) and may outlive
+  // this object. That happens when the device image owning this kernel name is
+  // unregistered (e.g. on dlclose, or on Windows when the module holding the
+  // kernel is unloaded) before the runtime shuts down and clears its caches.
+  std::shared_ptr<FastKernelSubcacheT> MFastKernelSubcache =
+      std::make_shared<FastKernelSubcacheT>();
   std::optional<int> MImplicitLocalArgPos;
   bool MWorkGroupDynamicLocalMem = false;
   const std::optional<sycl::kernel_id> MKernelID;
