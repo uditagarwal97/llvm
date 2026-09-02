@@ -389,11 +389,32 @@ config.level_zero_include = quote_path(
     )
 )
 
+# A sanitized build's bundled libze_loader is instrumented, so anything linking
+# it needs the sanitizer runtimes on the link line too. Without them the link
+# fails on undefined __asan_*/__ubsan_* symbols, and since that link is also how
+# the level_zero_dev_kit feature is probed below, the feature silently
+# disappears and every test requiring it is skipped instead of reported.
+# The runtimes belong to host_cxx, which built the sanitized libraries; the
+# static UBSan runtime is used so no extra directory is needed at run time.
+sanitizer_link_libs = ""
+if getattr(config, "llvm_use_sanitizer", ""):
+    for rt in ("libclang_rt.ubsan_standalone-x86_64.a", "libclang_rt.asan-x86_64.so"):
+        if "Address" not in config.llvm_use_sanitizer and rt.startswith(
+            "libclang_rt.asan"
+        ):
+            continue
+        rt_path = subprocess.check_output(
+            [config.host_cxx, "-print-file-name=" + rt], text=True
+        ).strip()
+        if os.path.isfile(rt_path):
+            sanitizer_link_libs += " " + quote_path(rt_path)
+
 level_zero_options = level_zero_options = (
     (" -L" + config.level_zero_libs_dir if config.level_zero_libs_dir else "")
     + " -lze_loader "
     + " -I"
     + config.level_zero_include
+    + sanitizer_link_libs
 )
 if cl_options:
     if is_windows_unc_network_path(level_zero_win_lib):
@@ -603,6 +624,14 @@ with test_env():
 llvm_config.with_system_environment("ROCM_PATH")
 
 # Check for OpenCL ICD
+if not config.opencl_libs_dir:
+    # Unified Runtime builds the ICD loader itself and force-sets OpenCL_LIBRARY
+    # to the CMake target name ("OpenCL") rather than a path, so
+    # lit.site.cfg.py cannot derive a directory from it and opencl_icd silently
+    # disappears. The loader it builds is installed next to libsycl.
+    icd_lib = "OpenCL.lib" if platform.system() == "Windows" else "libOpenCL.so"
+    if os.path.isfile(os.path.join(config.sycl_libs_dir, icd_lib)):
+        config.opencl_libs_dir = config.sycl_libs_dir
 if config.opencl_libs_dir:
     opencl_win_lib = config.opencl_libs_dir + "/OpenCL.lib"
     config.opencl_libs_dir = quote_path(config.opencl_libs_dir)
