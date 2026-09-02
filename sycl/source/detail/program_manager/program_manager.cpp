@@ -1098,7 +1098,7 @@ FastKernelCacheValPtr ProgramManager::getOrCreateKernel(
   if (SYCLConfig<SYCL_CACHE_IN_MEM>::get()) {
     if (auto KernelCacheValPtr =
             Cache.tryToGetKernelFast(DeviceKernelInfo.Name, UrDevice,
-                                     DeviceKernelInfo.getKernelSubcache())) {
+                                     *DeviceKernelInfo.getKernelSubcache())) {
       return KernelCacheValPtr;
     }
   }
@@ -1243,8 +1243,8 @@ ProgramManager::ProgramManager()
                           UseSpvEnv + ": " + SpvFile);
     File.seekg(0, std::ios::end);
     size_t Size = File.tellg();
-    std::unique_ptr<char[], std::function<void(void *)>> Data(new char[Size],
-                                                              std::free);
+    std::unique_ptr<char[], std::function<void(void *)>> Data(
+        new char[Size], [](void *Ptr) { delete[] static_cast<char *>(Ptr); });
     File.seekg(0);
     File.read(Data.get(), Size);
     File.close();
@@ -1762,7 +1762,8 @@ void ProgramManager::addImage(sycl_device_binary RawImg,
         size_t ImgSize =
             static_cast<size_t>(RawImg->BinaryEnd - RawImg->BinaryStart);
         std::unique_ptr<char[], std::function<void(void *)>> Data(
-            new char[ImgSize], std::free);
+            new char[ImgSize],
+            [](void *Ptr) { delete[] static_cast<char *>(Ptr); });
         std::memcpy(Data.get(), RawImg->BinaryStart, ImgSize);
         DevImg =
             std::make_unique<DynRTDeviceBinaryImage>(std::move(Data), ImgSize);
