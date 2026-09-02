@@ -81,7 +81,7 @@ TEST_F(SchedulerTest, LinkedAllocaDependencies) {
   MockCommand DepCmd(nullptr, Req);
   MockCommand DepDepCmd(nullptr, Req);
   DepCmd.MDeps.push_back({&DepDepCmd, DepDepCmd.getRequirement(), &AllocaCmd1});
-  DepDepCmd.MUsers.insert(&DepCmd);
+  DepDepCmd.addUser(&DepCmd);
   std::vector<sycl::detail::Command *> ToEnqueue;
   Record->MWriteLeaves.push_back(&DepCmd, ToEnqueue);
 

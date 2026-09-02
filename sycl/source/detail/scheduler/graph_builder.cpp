@@ -134,6 +134,9 @@ static void unmarkVisitedNodes(std::vector<Command *> &Visited) {
 static void handleVisitedNodes(std::vector<Command *> &Visited) {
   for (Command *Cmd : Visited) {
     if (Cmd->MMarks.MToBeDeleted) {
+      // A command that survives this pass must not be left pointing at a
+      // deleted one.
+      Cmd->unlinkFromNeighbours();
       Cmd->getEvent()->setCommand(nullptr);
       delete Cmd;
     } else
@@ -1079,9 +1082,11 @@ void Scheduler::GraphBuilder::cleanupCommandsForRecord(MemObjRecord *Record) {
         markNodeAsVisited(UserCmd, MVisitedCmds);
 
     AllocaCmd->MMarks.MToBeDeleted = true;
-    // These commands will be deleted later, clear users now to avoid
-    // updating them during edge removal
-    AllocaCmd->MUsers.clear();
+    // These commands will be deleted later, detach them now to avoid updating
+    // them during edge removal. This has to drop the matching MPredecessors
+    // entries too, or a user that survives this pass is left pointing at a
+    // command that gets deleted below.
+    AllocaCmd->unlinkFromNeighbours();
   }
 
   // Make sure the Linked Allocas are marked visited by the previous walk.
@@ -1095,7 +1100,7 @@ void Scheduler::GraphBuilder::cleanupCommandsForRecord(MemObjRecord *Record) {
 
     for (DepDesc &Dep : AllocaCmd->MDeps)
       if (Dep.MDepCommand)
-        Dep.MDepCommand->MUsers.erase(AllocaCmd);
+        Dep.MDepCommand->removeUser(AllocaCmd);
   }
 
   // Traverse the graph using BFS
@@ -1129,13 +1134,13 @@ void Scheduler::GraphBuilder::cleanupCommandsForRecord(MemObjRecord *Record) {
     for (auto DepCmdIt : ShouldBeUpdated) {
       if (!DepCmdIt.second)
         continue;
-      DepCmdIt.first->MUsers.erase(Cmd);
+      DepCmdIt.first->removeUser(Cmd);
     }
 
     // If all dependencies have been removed this way, mark the command for
     // deletion
     if (Cmd->MDeps.empty()) {
-      Cmd->MUsers.clear();
+      Cmd->unlinkFromNeighbours();
       // Do not delete the node if it's scheduled for post-enqueue cleanup to
       // avoid double free.
       if (!Cmd->MMarkedForCleanup)
@@ -1178,16 +1183,14 @@ void Scheduler::GraphBuilder::cleanupCommand(
           Dep.MDepCommand = nullptr;
         } else {
           Dep.MDepCommand = Dep.MAllocaCmd;
-          Dep.MDepCommand->MUsers.insert(UserCmd);
+          Dep.MDepCommand->addUser(UserCmd);
         }
       }
     }
   }
-  // Update dependency users
-  for (DepDesc &Dep : Cmd->MDeps) {
-    Command *DepCmd = Dep.MDepCommand;
-    DepCmd->MUsers.erase(Cmd);
-  }
+  // Update dependency users. MPredecessors is the exact reverse of MUsers, so
+  // this covers the edges that have no MDeps entry as well.
+  Cmd->unlinkFromNeighbours();
 
   Cmd->getEvent()->setCommand(nullptr);
   delete Cmd;

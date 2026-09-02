@@ -167,6 +167,10 @@ void Scheduler::enqueueCommandForCG(event_impl &Event,
 
     auto CleanUp = [&]() {
       if (NewCmd && (NewCmd->MDeps.size() == 0 && NewCmd->MUsers.size() == 0)) {
+        // An empty MDeps/MUsers does not mean the command is unreferenced: a
+        // cross-context connect command holds it in its MUsers with no matching
+        // MDeps entry, so it has to be unlinked before it is freed.
+        NewCmd->unlinkFromNeighbours();
         Event.setCommand(nullptr);
         delete NewCmd;
       }
