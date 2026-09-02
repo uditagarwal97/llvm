@@ -33,10 +33,14 @@ struct dummy_handle_t_ {
       : MStorage(DataSize), MData(MStorage.data()), MSize(DataSize) {}
   dummy_handle_t_(unsigned char *Data, size_t Size)
       : MData(Data), MSize(Size) {}
+  ~dummy_handle_t_();
+
   std::atomic<size_t> MRefCounter = 1;
   std::vector<unsigned char> MStorage;
   unsigned char *MData = nullptr;
   size_t MSize;
+  // Handles whose lifetime is tied to this one, see createDummyChildHandle.
+  std::vector<dummy_handle_t_ *> MChildren;
 
   template <typename T> T getDataAs() {
     assert(MStorage.size() >= sizeof(T));
@@ -57,6 +61,16 @@ using dummy_handle_t = dummy_handle_t_ *;
 template <class T> inline T createDummyHandle(size_t Size = 0) {
   dummy_handle_t DummyHandlePtr = new dummy_handle_t_(Size);
   return reinterpret_cast<T>(DummyHandlePtr);
+}
+
+// Allocates a dummy handle of type T which is owned by the handle 'Parent':
+// it is deallocated together with the parent. Used for handles that have no
+// release entry point in UR, e.g. the command handles returned by
+// urCommandBufferAppend*Exp, which the command buffer owns.
+template <class T> inline T createDummyChildHandle(void *Parent) {
+  dummy_handle_t ChildPtr = new dummy_handle_t_();
+  reinterpret_cast<dummy_handle_t>(Parent)->MChildren.push_back(ChildPtr);
+  return reinterpret_cast<T>(ChildPtr);
 }
 
 // Allocates a dummy handle of type T with support of reference counting
@@ -81,6 +95,11 @@ template <class T> inline void releaseDummyHandle(T Handle) {
 template <class T> inline void retainDummyHandle(T Handle) {
   auto DummyHandlePtr = reinterpret_cast<dummy_handle_t>(Handle);
   ++DummyHandlePtr->MRefCounter;
+}
+
+inline dummy_handle_t_::~dummy_handle_t_() {
+  for (dummy_handle_t Child : MChildren)
+    releaseDummyHandle(Child);
 }
 
 struct callbacks_t {

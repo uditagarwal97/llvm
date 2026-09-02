@@ -10977,7 +10977,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendKernelLaunchExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11095,7 +11096,8 @@ urCommandBufferAppendKernelLaunchWithArgsExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11185,7 +11187,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendUSMMemcpyExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11278,7 +11281,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendUSMFillExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11374,7 +11378,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendMemBufferCopyExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11467,7 +11472,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendMemBufferWriteExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11560,7 +11566,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendMemBufferReadExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11668,7 +11675,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendMemBufferCopyRectExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11779,7 +11787,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendMemBufferWriteRectExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11889,7 +11898,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendMemBufferReadRectExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -11985,7 +11995,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendMemBufferFillExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -12075,7 +12086,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendUSMPrefetchExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
@@ -12165,7 +12177,8 @@ __urdlllocal ur_result_t UR_APICALL urCommandBufferAppendUSMAdviseExp(
     // optional output handle
     if (phCommand) {
       *phCommand =
-          mock::createDummyHandle<ur_exp_command_buffer_command_handle_t>();
+          mock::createDummyChildHandle<ur_exp_command_buffer_command_handle_t>(
+              hCommandBuffer);
     }
     result = UR_RESULT_SUCCESS;
   }
