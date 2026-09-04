@@ -1161,8 +1161,12 @@ void Scheduler::GraphBuilder::cleanupCommand(
   if (SYCLConfig<SYCL_DISABLE_EXECUTION_GRAPH_CLEANUP>::get())
     return;
 
+  // A command whose enqueue failed will never be retried, so it is as ready for
+  // deletion as a successfully enqueued one.
   assert(Cmd->MLeafCounter == 0 &&
-         (Cmd->isSuccessfullyEnqueued() || AllowUnsubmitted));
+         (Cmd->isSuccessfullyEnqueued() ||
+          Cmd->MEnqueueStatus == EnqueueResultT::SyclEnqueueFailed ||
+          AllowUnsubmitted));
   Command::CommandType CmdT = Cmd->getType();
 
   assert(CmdT != Command::ALLOCA && CmdT != Command::ALLOCA_SUB_BUF);

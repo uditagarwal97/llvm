@@ -422,11 +422,25 @@ void Scheduler::enqueueUnblockedCommands(events_range ToEnqueue,
     if (!Cmd)
       continue;
     EnqueueResultT Res;
-    bool Enqueued =
-        GraphProcessor::enqueueCommand(Cmd, GraphReadLock, Res, ToCleanUp, Cmd);
-    if (!Enqueued && EnqueueResultT::SyclEnqueueFailed == Res.MResult)
-      throw exception(make_error_code(errc::runtime),
-                      "Enqueue process failed.");
+    try {
+      bool Enqueued = GraphProcessor::enqueueCommand(Cmd, GraphReadLock, Res,
+                                                     ToCleanUp, Cmd);
+      if (!Enqueued && EnqueueResultT::SyclEnqueueFailed == Res.MResult)
+        throw exception(make_error_code(errc::runtime),
+                        "Enqueue process failed.");
+    } catch (...) {
+      // enqueueCommand() and the throw above may leave the command permanently
+      // unenqueued - unlike a synchronous submission, nothing will ever retry
+      // it. Schedule it for deletion the same way enqueueCommandForCG() does,
+      // otherwise it keeps its queue, and everything the queue owns, alive
+      // forever through the shared_ptr in Command::MQueue.
+      if (Cmd->MEnqueueStatus == EnqueueResultT::SyclEnqueueFailed &&
+          Cmd->MLeafCounter == 0 && !Cmd->MMarkedForCleanup) {
+        Cmd->MMarkedForCleanup = true;
+        ToCleanUp.push_back(Cmd);
+      }
+      throw;
+    }
   }
 }
 
@@ -498,6 +512,7 @@ void Scheduler::NotifyHostTaskCompletion(Command *Cmd) {
   auto CmdEvent = Cmd->getEvent();
   auto QueueImpl = CmdEvent->getSubmittedQueue();
   assert(QueueImpl && "Submitted queue for host task must not be null");
+  std::exception_ptr EnqueueException;
   {
     ReadLockT Lock = acquireReadLock();
 
@@ -512,11 +527,21 @@ void Scheduler::NotifyHostTaskCompletion(Command *Cmd) {
       // update self-event status
       CmdEvent->setComplete();
     }
-    Scheduler::enqueueUnblockedCommands(Cmd->MBlockedUsers, Lock, ToCleanUp);
+    try {
+      Scheduler::enqueueUnblockedCommands(Cmd->MBlockedUsers, Lock, ToCleanUp);
+    } catch (...) {
+      // The failure is reported to the async handler by the caller, but the
+      // bookkeeping below must still happen or the commands collected in
+      // ToCleanUp (this host task included) are leaked.
+      EnqueueException = std::current_exception();
+    }
   }
   QueueImpl->revisitUnenqueuedCommandsState(CmdEvent);
 
   cleanupCommands(ToCleanUp);
+
+  if (EnqueueException)
+    std::rethrow_exception(EnqueueException);
 }
 
 void Scheduler::deferMemObjRelease(const std::shared_ptr<SYCLMemObjI> &MemObj) {
@@ -714,9 +739,11 @@ void Scheduler::reportAsyncException(
     const std::shared_ptr<queue_impl> &QueuePtr,
     const std::exception_ptr &ExceptionPtr) {
   std::lock_guard<std::mutex> Lock(MAsyncExceptionsMutex);
-  MAsyncExceptions[AsyncExceptionKey{QueuePtr,
-                                     QueuePtr->getContextImplWeakPtr()}]
-      .PushBack(ExceptionPtr);
+  AsyncExceptionEntry &Entry = MAsyncExceptions[AsyncExceptionKey{
+      QueuePtr, QueuePtr->getContextImplWeakPtr()}];
+  if (!Entry.Handler)
+    Entry.Handler = QueuePtr->getAsynchHandler();
+  Entry.Exceptions.PushBack(ExceptionPtr);
 }
 
 void Scheduler::flushAsyncExceptions() {
@@ -726,14 +753,15 @@ void Scheduler::flushAsyncExceptions() {
     std::swap(AsyncExceptions, MAsyncExceptions);
   }
   for (auto &ExceptionsEntryIt : AsyncExceptions) {
-    exception_list Exceptions = std::move(ExceptionsEntryIt.second);
+    exception_list Exceptions = std::move(ExceptionsEntryIt.second.Exceptions);
 
     if (Exceptions.size() == 0)
       continue;
 
-    std::shared_ptr<queue_impl> Queue = ExceptionsEntryIt.first.first.lock();
-    if (Queue && Queue->getAsynchHandler()) {
-      Queue->getAsynchHandler()(std::move(Exceptions));
+    // Use the submitting queue's handler even if the queue itself is already
+    // gone - it is the handler the user registered for these exceptions.
+    if (const async_handler &Handler = ExceptionsEntryIt.second.Handler) {
+      Handler(std::move(Exceptions));
       continue;
     }
 
