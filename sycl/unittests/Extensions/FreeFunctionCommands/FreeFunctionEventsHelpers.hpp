@@ -100,6 +100,10 @@ inline ur_result_t after_urEnqueueEventsWaitWithBarrier(void *pParams) {
 static size_t counter_urEnqueueHostTaskExp = 0;
 inline ur_result_t redefined_urEnqueueHostTaskExp(void *pParams) {
   ++counter_urEnqueueHostTaskExp;
+  auto params = *static_cast<ur_enqueue_host_task_exp_params_t *>(pParams);
+  // A real adapter always runs the callback, which takes ownership of the data
+  // the runtime allocated for it.
+  (*params.ppfnHostTask)(*params.pdata);
   return UR_RESULT_SUCCESS;
 }
 

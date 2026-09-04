@@ -71,12 +71,6 @@ ur_result_t redefinedEventGetInfo(void *pParams) {
   return UR_RESULT_SUCCESS;
 }
 
-static ur_result_t redefinedEnqueueUSMFill(void *pParams) {
-  auto params = *static_cast<ur_enqueue_usm_fill_params_t *>(pParams);
-  **params.pphEvent = reinterpret_cast<ur_event_handle_t>(new int{});
-  return UR_RESULT_SUCCESS;
-}
-
 TEST(GetNative, GetNativeHandle) {
   sycl::unittest::UrMock<> Mock;
   sycl::platform Plt = sycl::platform();
@@ -96,8 +90,6 @@ TEST(GetNative, GetNativeHandle) {
   mock::getCallbacks().set_before_callback("urMemRetain", &redefinedMemRetain);
   mock::getCallbacks().set_before_callback("urMemBufferCreate",
                                            &redefinedMemBufferCreate);
-  mock::getCallbacks().set_before_callback("urEnqueueUSMFill",
-                                           &redefinedEnqueueUSMFill);
 
   context Context(Plt);
   queue Queue(Context, default_selector_v);
@@ -136,4 +128,6 @@ TEST(GetNative, GetNativeHandle) {
   // underlying handles
   ASSERT_EQ(TestCounter, 2 + DeviceRetainCounter - 1)
       << "get_native retained SYCL objects";
+
+  sycl::free(HostAlloc, Context);
 }

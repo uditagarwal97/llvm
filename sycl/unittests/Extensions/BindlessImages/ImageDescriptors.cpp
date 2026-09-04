@@ -84,10 +84,11 @@ TEST(BindlessImagesExtensionTests, ImageDescriptorPropagatesLayout) {
 
   try {
     auto ImgHandle = syclexp::map_external_image_memory(MemHandle, Desc, Q);
-    (void)ImgHandle;
+    syclexp::unmap_external_image_memory(ImgHandle, Desc.type, Q);
   } catch (const sycl::exception &e) {
     FAIL() << "Caught unexpected SYCL exception: " << e.what();
   }
+  syclexp::release_external_memory(MemHandle, Q);
 
   EXPECT_EQ(MapExternalArrayCallCounter, 1);
 }
@@ -220,10 +221,11 @@ TEST(BindlessImagesExtensionTests, ImageDescriptorPropagatesSlicePitch) {
 
   try {
     auto ImgHandle = syclexp::map_external_image_memory(MemHandle, Desc, Q);
-    (void)ImgHandle;
+    syclexp::unmap_external_image_memory(ImgHandle, Desc.type, Q);
   } catch (const sycl::exception &e) {
     FAIL() << "Caught unexpected SYCL exception: " << e.what();
   }
+  syclexp::release_external_memory(MemHandle, Q);
 
   EXPECT_EQ(MapExternalArrayCallCounter, 1);
 }
