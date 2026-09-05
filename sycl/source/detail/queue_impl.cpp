@@ -674,10 +674,7 @@ bool queue_impl::isNativeRecording() const {
 }
 
 queue_impl::NativeRecordingResult
-queue_impl::beginNativeRecording(ur_exp_graph_handle_t Graph, bool LockQueue) {
-  std::unique_lock<std::mutex> Lock(MMutex, std::defer_lock);
-  if (LockQueue)
-    Lock.lock();
+queue_impl::beginNativeRecording(ur_exp_graph_handle_t Graph) {
   NativeRecordingResult BeginResult;
   BeginResult.Result =
       getAdapter().call_nocheck<UrApiKind::urQueueBeginCaptureIntoGraphExp>(

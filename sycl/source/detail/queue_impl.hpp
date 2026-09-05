@@ -673,8 +673,19 @@ public:
     ur_result_t Result = UR_RESULT_SUCCESS;
   };
 
-  NativeRecordingResult beginNativeRecording(ur_exp_graph_handle_t Graph,
-                                             bool LockQueue);
+  /// Locks this queue for as long as the returned lock lives.
+  ///
+  /// Only meant for starting graph recording: a submission takes this lock and
+  /// then the recorded graph's lock (finalizeHandlerOutOfOrder ->
+  /// handler::finalize -> submit_command_to_graph), so everything else must
+  /// take the two in that order too or it deadlocks. Since it is the graph that
+  /// starts recording, graph_impl needs a way to take this lock first.
+  [[nodiscard]] std::unique_lock<std::mutex> lockForGraphRecording() {
+    return std::unique_lock<std::mutex>{MMutex};
+  }
+
+  /// Must be called with this queue locked, see lockForGraphRecording().
+  NativeRecordingResult beginNativeRecording(ur_exp_graph_handle_t Graph);
 
   NativeRecordingResult endNativeRecording();
 
