@@ -187,9 +187,17 @@ public:
 
   context_impl &khr_get_default_context();
 
-  // when getting sub-devices for ONEAPI_DEVICE_SELECTOR we may temporarily
-  // ensure every device is a root one.
-  bool MAlwaysRootDevice = false;
+  // When getting sub-devices for ONEAPI_DEVICE_SELECTOR we may temporarily
+  // ensure every device is a root one. `platform_impl` objects are cached in
+  // `GlobalHandler` for the lifetime of the process and are shared by all
+  // threads, so this flag must not be shared state: the `TempAssignGuard` that
+  // flips it in `amendDeviceAndSubDevices()` is unsynchronized, and two threads
+  // amending concurrently would race and could clobber each other's saved
+  // value, leaving the flag permanently `true`. Keeping it per-thread makes the
+  // flag private to the amend operation that set it. Only read when
+  // constructing a `device_impl` (see device_impl.cpp), which always happens on
+  // the thread doing the amending.
+  static thread_local bool MAlwaysRootDevice;
 
 private:
   device_impl *getDeviceImplHelper(ur_device_handle_t UrDevice);
