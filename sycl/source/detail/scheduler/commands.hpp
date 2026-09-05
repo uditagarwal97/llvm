@@ -186,6 +186,13 @@ public:
 
   queue_impl *getQueue() const { return MQueue.get(); }
 
+  /// The queue this command actually runs on. Differs from MQueue only for
+  /// memory copy commands moving data to the host: there MQueue is null while
+  /// the command still executes on the source queue. Matches the queue whose
+  /// context getWorkerContext() reports.
+  queue_impl *getWorkerQueue() const { return MWorkerQueue.get(); }
+
+
   const EventImplPtr &getEvent() const { return MEvent; }
 
   // Methods needed to support SYCL instrumentation
