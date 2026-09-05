@@ -48,12 +48,8 @@ int main() {
     auto Context = Queue.get_context();
     auto Device = Queue.get_info<info::queue::device>();
 
-    exp_ext::command_graph Graph{
-        Queue.get_context(),
-        Queue.get_device(),
-        {exp_ext::property::graph::assume_buffer_outlives_graph{}}};
-
     // Get native Level Zero handles
+
     auto ZeContext = get_native<backend::ext_oneapi_level_zero>(Context);
     auto ZeDevice = get_native<backend::ext_oneapi_level_zero>(Device);
 
@@ -84,6 +80,17 @@ int main() {
     {
       auto BufferInterop = make_buffer<backend::ext_oneapi_level_zero, int, 1>(
           BufferInteropInput, Context);
+
+      // The graph must be constructed after the buffer so that it is destroyed
+      // first: assume_buffer_outlives_graph is a promise that the buffer stays
+      // alive for the whole lifetime of the graph, and ~graph_impl decrements a
+      // use counter inside every memory object the graph touched. Constructing
+      // the graph in the enclosing scope broke that promise and left
+      // ~graph_impl reading a freed buffer_impl.
+      exp_ext::command_graph Graph{
+          Queue.get_context(),
+          Queue.get_device(),
+          {exp_ext::property::graph::assume_buffer_outlives_graph{}}};
 
       auto NodeA = add_node(Graph, Queue, [&](sycl::handler &CGH) {
         auto Acc = BufferInterop.get_access<sycl::access_mode::read_write>(CGH);
