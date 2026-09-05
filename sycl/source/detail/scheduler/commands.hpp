@@ -384,7 +384,13 @@ public:
   /// Indicates that the node will be freed by graph cleanup. Such nodes should
   /// be ignored by other cleanup mechanisms (e.g. during memory object
   /// removal).
-  bool MMarkedForCleanup = false;
+  /// Atomic because it is the double-free guard for post-enqueue cleanup, yet
+  /// it is written by Command::enqueue, Scheduler::NotifyHostTaskCompletion
+  /// (host task thread pool) and Scheduler::enqueueUnblockedCommands, all of
+  /// which hold only the graph *read* lock - which does not exclude each other.
+  /// Whoever wins the exchange below owns the command and is the only one
+  /// allowed to put it into a ToCleanUp list, so it gets deleted exactly once.
+  std::atomic<bool> MMarkedForCleanup{false};
 
   /// Contains list of commands that depends on the host command explicitly (by
   /// depends_on). Not involved in the cleanup process since it is one-way link
