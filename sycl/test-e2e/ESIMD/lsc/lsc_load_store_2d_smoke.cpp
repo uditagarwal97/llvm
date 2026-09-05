@@ -17,7 +17,10 @@
 #include <cmath>
 #include <numeric>
 #include <random>
+#include <vector>
+
 #include <sycl/detail/core.hpp>
+
 #include <sycl/ext/intel/esimd.hpp>
 #include <sycl/usm.hpp>
 
@@ -46,7 +49,10 @@ int main() {
 
   auto *block_store = malloc_shared<int>(Size, q);
 
-  auto *ref = new int[Size];
+  // std::vector, not new[]: main returns early from the exception handler below,
+  // so a manual delete[] at the end would still leak on that path.
+  std::vector<int> ref(Size);
+
 
   for (int i = 0; i < Size; i++)
     block_store[i] = ref[i] = rand() % 128;
