@@ -812,6 +812,11 @@ public:
   }
 
   void removeAllRelatedEntries(uint32_t ImageId) {
+    // The eviction list lock must be taken before the program cache lock, which
+    // is the order reset() and evictPrograms() use. Taking the program cache
+    // lock first here and the eviction list lock second is an AB-BA deadlock
+    // against either of them.
+    auto LockedEvictionList = acquireEvictionList();
     auto LockedCache = acquireCachedPrograms();
     ProgramCache &ProgCache = LockedCache.get();
 
@@ -823,10 +828,7 @@ public:
 
     auto Key = (*It).second;
     removeProgramByKey(Key, ProgCache);
-    {
-      auto LockedEvictionList = acquireEvictionList();
-      LockedEvictionList.get().erase(Key);
-    }
+    LockedEvictionList.get().erase(Key);
   }
 
 private:

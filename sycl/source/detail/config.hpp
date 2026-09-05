@@ -312,25 +312,22 @@ template <> class SYCLConfig<ONEAPI_DEVICE_SELECTOR> {
 public:
   static ods_target_list *get() {
     // Configuration parameters are processed only once, like reading a string
-    // from environment and converting it into a typed object.
-    static bool Initialized = false;
-    static ods_target_list *DeviceTargets = nullptr;
-
-    if (Initialized) {
-      return DeviceTargets;
-    }
-    const char *ValStr = BaseT::getRawValue();
-    if (ValStr) {
+    // from environment and converting it into a typed object. Let the language
+    // do the synchronisation: a separate `Initialized` flag was read and written
+    // with none, so a second thread could see it set before the store to the
+    // pointer was visible and silently get no device filter at all.
+    static ods_target_list *DeviceTargets = []() -> ods_target_list * {
+      const char *ValStr = BaseT::getRawValue();
+      if (!ValStr)
+        return nullptr;
       // Throw if the input string is empty.
       if (ValStr[0] == '\0')
         throw exception(make_error_code(errc::invalid),
                         "Invalid value for ONEAPI_DEVICE_SELECTOR environment "
                         "variable: value should not be null.");
 
-      DeviceTargets =
-          &GlobalHandler::instance().getOneapiDeviceSelectorTargets(ValStr);
-    }
-    Initialized = true;
+      return &GlobalHandler::instance().getOneapiDeviceSelectorTargets(ValStr);
+    }();
     return DeviceTargets;
   }
 };
