@@ -231,8 +231,23 @@ ur_result_t MsanShadowMemoryGPU::Destory() {
     return UR_RESULT_SUCCESS;
   }
   static ur_result_t Result = [this]() {
+    // ReleaseShadow() only walks the shadow range of an allocation, never the
+    // origin range that EnqueuePoisonShadowWithOrigin() maps as well, so pages
+    // are still mapped at teardown. Unmap and release them here, as the ASan
+    // and TSan layers do, or their physical memory handles leak.
+    {
+      const size_t PageSize = GetVirtualMemGranularity(Context, Device);
+      for (const auto &[MappedPtr, Mapping] : VirtualMemMaps) {
+        UR_CALL(getContext()->urDdiTable.VirtualMem.pfnUnmap(
+            Context, (void *)MappedPtr, PageSize));
+        UR_CALL(getContext()->urDdiTable.PhysicalMem.pfnRelease(Mapping.first));
+      }
+      VirtualMemMaps.clear();
+    }
+
     auto Result = getContext()->urDdiTable.VirtualMem.pfnFree(
         Context, (const void *)ShadowBegin, GetShadowSize());
+
 
     if (PrivateShadowOffset != 0) {
       UR_CALL(getContext()->urDdiTable.USM.pfnFree(
@@ -380,6 +395,10 @@ MsanShadowMemoryGPU::ReleaseShadow(std::shared_ptr<MsanAllocInfo> AI) {
           VirtualMemMaps[MappedPtr].first));
       UR_LOG_L(getContext()->logger, DEBUG, "urVirtualMemUnmap: {} ~ {}",
                (void *)MappedPtr, (void *)(MappedPtr + PageSize - 1));
+      // Drop the entry. Keeping it would make EnqueueVirtualMemMap() believe
+      // the page is still mapped and skip re-mapping it, and would make the
+      // teardown loop in Destory() unmap and release it a second time.
+      VirtualMemMaps.erase(MappedPtr);
     }
   }
 
