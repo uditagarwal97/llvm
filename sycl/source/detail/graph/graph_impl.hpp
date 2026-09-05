@@ -474,7 +474,7 @@ public:
 
   /// Sets the Queue state to queue_state::recording. Adds the queue to the list
   /// of recording queues associated with this graph.
-  /// Does not take the queue submission lock.
+  /// Does not take the queue submission lock; the caller must already hold it.
   ///
   /// Required for the cases, when the recording is started directly
   /// from within the kernel submission flow.
@@ -561,11 +561,11 @@ public:
 
 private:
   /// Common implementation for beginRecording and beginRecordingUnlockedQueue.
+  /// Must be called with \p Queue already locked: this takes the graph lock,
+  /// and the queue lock always comes first, see
+  /// queue_impl::lockForGraphRecording().
   /// @param[in] Queue The queue to be recorded from.
-  /// @param[in] AcquireQueueLock Whether to acquire the queue lock when setting
-  /// command graph.
-  void beginRecordingImpl(sycl::detail::queue_impl &Queue,
-                          bool AcquireQueueLock);
+  void beginRecordingImpl(sycl::detail::queue_impl &Queue);
 
   template <typename... Ts> node_impl &createNode(Ts &&...Args) {
     MNodeStorage.push_back(

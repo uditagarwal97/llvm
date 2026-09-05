@@ -871,8 +871,7 @@ std::vector<sycl::detail::EventImplPtr> graph_impl::getExitNodesEvents(
   return Events;
 }
 
-void graph_impl::beginRecordingImpl(sycl::detail::queue_impl &Queue,
-                                    bool AcquireQueueLock) {
+void graph_impl::beginRecordingImpl(sycl::detail::queue_impl &Queue) {
   graph_impl::WriteLock Lock(MMutex);
 
   // Native recording limitation: single queue at a time
@@ -896,8 +895,7 @@ void graph_impl::beginRecordingImpl(sycl::detail::queue_impl &Queue,
         throw sycl::exception(sycl::make_error_code(errc::invalid),
                               "Queue is already in native graph capture mode");
       }
-      auto BeginResult =
-          Queue.beginNativeRecording(MNativeGraphHandle, AcquireQueueLock);
+      auto BeginResult = Queue.beginNativeRecording(MNativeGraphHandle);
       if (BeginResult.RecordingActive) {
         addQueue(Queue);
       }
@@ -905,22 +903,23 @@ void graph_impl::beginRecordingImpl(sycl::detail::queue_impl &Queue,
           BeginResult.Result, "Failed to begin native UR graph capture");
     } else {
       // Non-native recording path
-      if (AcquireQueueLock) {
-        Queue.setCommandGraph(shared_from_this());
-      } else {
-        Queue.setCommandGraphUnlocked(shared_from_this());
-      }
+      Queue.setCommandGraphUnlocked(shared_from_this());
       addQueue(Queue);
     }
   }
 }
 
 void graph_impl::beginRecordingUnlockedQueue(sycl::detail::queue_impl &Queue) {
-  beginRecordingImpl(Queue, /*AcquireQueueLock=*/false);
+  beginRecordingImpl(Queue);
 }
 
 void graph_impl::beginRecording(sycl::detail::queue_impl &Queue) {
-  beginRecordingImpl(Queue, /*AcquireQueueLock=*/true);
+  // The queue lock has to be taken before the graph lock, never the other way
+  // round: a submission to a recording queue holds the queue lock and then
+  // takes this graph's lock in submit_command_to_graph(), so locking the graph
+  // first here would deadlock against a concurrent submission.
+  auto QueueLock = Queue.lockForGraphRecording();
+  beginRecordingImpl(Queue);
 }
 
 // Check if nodes do not require enqueueing and if so loop back through
@@ -2289,9 +2288,14 @@ void modifiable_command_graph::end_recording(queue &RecordingQueue) {
   bool IsRecordingToThisGraph = false;
 
   if (isNativeRecordingEnabledForGraph(*impl)) {
-    // For native recording, check if queue is in our recording queue list
-    graph_impl::WriteLock Lock(impl->MMutex);
-    IsRecordingToThisGraph = impl->isQueueRecording(QueueImpl);
+    // For native recording, check if queue is in our recording queue list.
+    // endNativeRecording() takes the queue lock, so the graph lock must be
+    // released before calling it: the queue lock always comes first, see
+    // queue_impl::lockForGraphRecording(). clearQueues() does the same.
+    {
+      graph_impl::WriteLock Lock(impl->MMutex);
+      IsRecordingToThisGraph = impl->isQueueRecording(QueueImpl);
+    }
 
     if (IsRecordingToThisGraph) {
       // End native UR graph capture
@@ -2299,6 +2303,7 @@ void modifiable_command_graph::end_recording(queue &RecordingQueue) {
              "Native graph handle must be valid when ending native recording");
       auto EndResult = QueueImpl.endNativeRecording();
       if (!EndResult.RecordingActive) {
+        graph_impl::WriteLock Lock(impl->MMutex);
         impl->removeQueue(QueueImpl);
       }
       impl->getContextImpl().getAdapter().checkUrResult(
