@@ -83,7 +83,7 @@ void *async_malloc(sycl::handler &h, sycl::usm::alloc kind, size_t size) {
 
   void *alloc = nullptr;
 
-  ur_event_handle_t Event = nullptr;
+  detail::Managed<ur_event_handle_t> Event{Adapter};
   // If a graph is present do the allocation from the graph memory pool instead.
   if (auto Graph = h.getCommandGraph(); Graph) {
     auto DepNodes =
@@ -100,7 +100,8 @@ void *async_malloc(sycl::handler &h, sycl::usm::alloc kind, size_t size) {
   // Async malloc must return a void* immediately.
   // Set up CommandGroup which is a no-op and pass the
   // event from the alloc.
-  h.impl->MAsyncAllocEvent = Event;
+  h.impl->MAsyncAllocEvent = std::move(Event);
+
   h.setType(detail::CGType::AsyncAlloc);
 
   return alloc;
@@ -142,7 +143,7 @@ __SYCL_EXPORT void *async_malloc_from_pool(sycl::handler &h, size_t size,
 
   void *alloc = nullptr;
 
-  ur_event_handle_t Event = nullptr;
+  detail::Managed<ur_event_handle_t> Event{Adapter};
   // If a graph is present do the allocation from the graph memory pool instead.
   if (auto Graph = h.getCommandGraph(); Graph) {
     auto DepNodes =
@@ -160,7 +161,8 @@ __SYCL_EXPORT void *async_malloc_from_pool(sycl::handler &h, size_t size,
   }
   // Async malloc must return a void* immediately.
   // Set up CommandGroup which is a no-op and pass the event from the alloc.
-  h.impl->MAsyncAllocEvent = Event;
+  h.impl->MAsyncAllocEvent = std::move(Event);
+
   h.setType(detail::CGType::AsyncAlloc);
 
   return alloc;

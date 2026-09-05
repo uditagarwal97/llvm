@@ -242,13 +242,18 @@ template <typename URResource> class Managed {
       return UrApiKind::urProgramRelease;
     if constexpr (std::is_same_v<URResource, ur_kernel_handle_t>)
       return UrApiKind::urKernelRelease;
+    if constexpr (std::is_same_v<URResource, ur_event_handle_t>)
+      return UrApiKind::urEventRelease;
   }();
   static constexpr auto Retain = []() constexpr {
     if constexpr (std::is_same_v<URResource, ur_program_handle_t>)
       return UrApiKind::urProgramRetain;
     if constexpr (std::is_same_v<URResource, ur_kernel_handle_t>)
       return UrApiKind::urKernelRetain;
+    if constexpr (std::is_same_v<URResource, ur_event_handle_t>)
+      return UrApiKind::urEventRetain;
   }();
+
 
 public:
   Managed() = default;

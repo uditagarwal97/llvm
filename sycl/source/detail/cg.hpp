@@ -20,8 +20,10 @@
 #include <sycl/kernel.hpp>        // for kernel_impl
 #include <sycl/kernel_bundle.hpp> // for kernel_bundle_impl
 
+#include <detail/adapter_impl.hpp> // for Managed
 #include <detail/device_kernel_info.hpp>
 #include <detail/kernel_arg_desc.hpp>
+
 #include <detail/ndrange_desc.hpp>
 
 #include <assert.h> // for assert
@@ -555,17 +557,28 @@ public:
 /// "Async Alloc" command group class.
 class CGAsyncAlloc : public CG {
 
-  // Resulting event carried from async alloc execution.
-  ur_event_handle_t MEvent;
+  // Resulting event carried from async alloc execution. Owned here, because the
+  // command group can be destroyed before it is ever enqueued - e.g. when
+  // submission throws - and nothing else would return the reference the adapter
+  // handed out in async_malloc().
+  Managed<ur_event_handle_t> MEvent;
 
 public:
-  CGAsyncAlloc(ur_event_handle_t event, CG::StorageInitHelper CGData,
+  CGAsyncAlloc(Managed<ur_event_handle_t> Event, CG::StorageInitHelper CGData,
                detail::code_location loc = {})
       : CG(CGType::AsyncAlloc, std::move(CGData), std::move(loc)),
-        MEvent(event) {}
+        MEvent(std::move(Event)) {}
 
-  ur_event_handle_t getEvent() const { return MEvent; }
+  // Graph allocations come from the graph memory pool and never call the
+  // adapter, so the copy the graph makes of the command group carries no event.
+  CGAsyncAlloc(const CGAsyncAlloc &Other) : CG(Other) {
+    assert(!Other.MEvent && "Cannot copy an owned async alloc event");
+  }
+
+  // Transfers ownership of the event to the caller.
+  Managed<ur_event_handle_t> takeEvent() { return std::move(MEvent); }
 };
+
 
 /// "Async Free" command group class.
 class CGAsyncFree : public CG {
