@@ -918,11 +918,14 @@ ur_result_t urKernelRelease(
   if (IndirectAccessTrackingEnabled) {
     UR_CALL(ur::level_zero::v1::urContextRelease(KernelProgram->Context));
   }
-  // do a release on the program this kernel was part of without delete of the
-  // program handle
-  KernelProgram->ur_release_program_resources(false);
-
   delete Kernel;
+
+  // Give back the reference taken in ur_kernel_handle_t_::initialize(). Only
+  // urProgramRelease frees the ur_program_handle_t_ itself when this turns out
+  // to be the last reference; ur_release_program_resources() would drop the
+  // count but leak the object. This has to run after the kernel is gone,
+  // because L0 requires a module's kernels to be destroyed before the module.
+  UR_CALL(ur::level_zero::urProgramRelease(common_cast(KernelProgram)));
 
   return UR_RESULT_SUCCESS;
 }
