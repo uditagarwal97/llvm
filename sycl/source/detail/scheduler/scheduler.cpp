@@ -450,6 +450,46 @@ void Scheduler::releaseResources(BlockingT Blocking) {
   // added to deferred mem obj storage. So we may end up with leak.
   do {
     cleanupDeferredMemObjects(Blocking);
+    // Memory objects can outlive the scheduler: destructors of buffers created
+    // before the first SYCL call are ordered after this point, and a buffer the
+    // application never destroys is not ordered at all. The commands of a
+    // record are owned by the graph, so a record still registered here is lost
+    // when the graph builder goes away. Tear down what is left now, while the
+    // adapters are still loaded.
+    //
+    // removeMemoryObject() is reused instead of open-coded: it waits for the
+    // record's leaves, enqueues the release commands, deletes the commands and
+    // only then detaches the record from the memory object, so a destructor for
+    // that object running later sees a null MRecord and repeats none of it. It
+    // takes the graph lock itself, hence the peek-unlock-remove shape, and
+    // MMemObjs has to be re-read on every iteration because deleting one
+    // record's commands can drop the last reference to another memory object,
+    // whose destructor erases its own entry.
+    SYCLMemObjI *LastTried = nullptr;
+    while (Blocking == BlockingT::BLOCKING) {
+      SYCLMemObjI *MemObj = nullptr;
+      {
+        ReadLockT Lock = acquireReadLock();
+        if (MGraphBuilder.MMemObjs.empty())
+          break;
+        MemObj = MGraphBuilder.MMemObjs.back();
+      }
+      // The same entry twice means removeMemoryObject() reported success
+      // without detaching the record, which it does when it decides waiting is
+      // unsafe during shutdown. Stop rather than spin on it.
+      if (MemObj == LastTried)
+        break;
+      LastTried = MemObj;
+      try {
+        // Not strict: shutdown must not block on the graph lock.
+        if (!removeMemoryObject(MemObj, /*StrictLock=*/false))
+          break;
+      } catch (...) {
+        // Nothing is recoverable this late, and the records left behind are no
+        // worse off than they were before this loop.
+        break;
+      }
+    }
   } while (Blocking == BlockingT::BLOCKING && !isDeferredMemObjectsEmpty());
 }
 
