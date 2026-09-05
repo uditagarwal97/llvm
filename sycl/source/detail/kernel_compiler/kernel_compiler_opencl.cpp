@@ -16,7 +16,9 @@
 
 #include <cstring>    // strlen
 #include <functional> // for std::function
-#include <numeric>    // for std::accumulate
+#include <map>
+#include <mutex>
+#include <numeric> // for std::accumulate
 #include <regex>
 #include <sstream>
 
@@ -68,6 +70,17 @@ static std::unique_ptr<void, std::function<void(void *)>>
       std::ignore = sycl::detail::ur::unloadOsLibrary(StoredPtr);
     });
 
+// Serialises everything that touches OclocLibrary: loading it, probing it
+// (which may reset() it back to nullptr on a failed probe) and calling through
+// the function pointers derived from it. Without this a failed probe on one
+// thread can dlclose the library from under a live oclocInvoke() call on
+// another. Recursive because loadOclocLibrary() probes by calling
+// InvokeOclocQuery(), which locks again. This is a cold path: ocloc is
+// dlopen'ed once and each invocation runs a real compilation, so a plain lock
+// costs nothing measurable.
+static std::recursive_mutex OclocMutex;
+
+// Callers must hold OclocMutex.
 void loadOclocLibrary(const std::vector<uint32_t> &IPVersionVec) {
 #ifdef __SYCL_RT_OS_WINDOWS
   // first the environment, if not compatible will move on to absolute path.
@@ -108,6 +121,8 @@ void loadOclocLibrary(const std::vector<uint32_t> &IPVersionVec) {
 }
 
 bool OpenCLC_Compilation_Available(const std::vector<uint32_t> &IPVersionVec) {
+  std::lock_guard<std::recursive_mutex> Lock{OclocMutex};
+
   // Already loaded?
   if (OclocLibrary != nullptr)
     return true;
@@ -123,23 +138,30 @@ bool OpenCLC_Compilation_Available(const std::vector<uint32_t> &IPVersionVec) {
 
 using voidPtr = void *;
 
+// Callers must hold OclocMutex, and must keep holding it for as long as they
+// use the resolved handles - they point into OclocLibrary, which a failed load
+// attempt on another thread would dlclose.
+//
+// The handles are resolved on every call rather than cached: loadOclocLibrary()
+// unloads the library again whenever a probe fails, so a cached handle can
+// outlive the mapping it points into and a later successful load can map the
+// library somewhere else. A dlsym on this path is free next to the ocloc
+// invocation that follows it.
 void SetupLibrary(voidPtr &oclocInvokeHandle, voidPtr &oclocFreeOutputHandle,
                   std::error_code the_errc,
                   const std::vector<uint32_t> &IPVersionVec) {
   if (OclocLibrary == nullptr)
     loadOclocLibrary(IPVersionVec);
 
-  if (!oclocInvokeHandle) {
-    oclocInvokeHandle = sycl::detail::ur::getOsLibraryFuncAddress(
-        OclocLibrary.get(), "oclocInvoke");
-    if (!oclocInvokeHandle)
-      throw sycl::exception(the_errc, "Cannot load oclocInvoke() function");
+  oclocInvokeHandle = sycl::detail::ur::getOsLibraryFuncAddress(
+      OclocLibrary.get(), "oclocInvoke");
+  if (!oclocInvokeHandle)
+    throw sycl::exception(the_errc, "Cannot load oclocInvoke() function");
 
-    oclocFreeOutputHandle = sycl::detail::ur::getOsLibraryFuncAddress(
-        OclocLibrary.get(), "oclocFreeOutput");
-    if (!oclocFreeOutputHandle)
-      throw sycl::exception(the_errc, "Cannot load oclocFreeOutput() function");
-  }
+  oclocFreeOutputHandle = sycl::detail::ur::getOsLibraryFuncAddress(
+      OclocLibrary.get(), "oclocFreeOutput");
+  if (!oclocFreeOutputHandle)
+    throw sycl::exception(the_errc, "Cannot load oclocFreeOutput() function");
 }
 
 std::string IPVersionsToString(const std::vector<uint32_t> IPVersionVec) {
@@ -161,12 +183,13 @@ std::string IPVersionsToString(const std::vector<uint32_t> IPVersionVec) {
 
 std::string InvokeOclocQuery(const std::vector<uint32_t> &IPVersionVec,
                              const char *identifier) {
+  std::lock_guard<std::recursive_mutex> Lock{OclocMutex};
 
   std::string QueryLog = "";
 
-  // handles into ocloc shared lib
-  static void *oclocInvokeHandle = nullptr;
-  static void *oclocFreeOutputHandle = nullptr;
+  // handles into ocloc shared lib, valid only while OclocMutex is held
+  void *oclocInvokeHandle = nullptr;
+  void *oclocFreeOutputHandle = nullptr;
   std::error_code the_errc = make_error_code(errc::runtime);
 
   SetupLibrary(oclocInvokeHandle, oclocFreeOutputHandle, the_errc,
@@ -222,9 +245,11 @@ il_vec_t OpenCLC_to_IL(const std::string &Source,
                        const std::vector<uint32_t> &IPVersionVec,
                        const std::vector<sycl::detail::string_view> &UserArgs,
                        std::string *LogPtr) {
-  // handles into ocloc shared lib
-  static void *oclocInvokeHandle = nullptr;
-  static void *oclocFreeOutputHandle = nullptr;
+  std::lock_guard<std::recursive_mutex> Lock{OclocMutex};
+
+  // handles into ocloc shared lib, valid only while OclocMutex is held
+  void *oclocInvokeHandle = nullptr;
+  void *oclocFreeOutputHandle = nullptr;
   std::error_code build_errc = make_error_code(errc::build);
 
   SetupLibrary(oclocInvokeHandle, oclocFreeOutputHandle, build_errc,
@@ -386,14 +411,31 @@ il_vec_t OpenCLC_to_IL(const std::string &Source,
   return IL;
 }
 
+// Returns a cached ocloc query log, running the query on first use. Keyed by
+// IPVersion as well as the query: different devices give different answers.
+// Throws whatever InvokeOclocQuery() throws, in which case nothing is cached
+// and a later call retries. Returns by value so callers can parse the log
+// without holding OclocMutex.
+static std::string getCachedQueryLog(uint32_t IPVersion,
+                                     const char *Identifier) {
+  static std::map<std::pair<uint32_t, std::string>, std::string> Cache;
+
+  std::lock_guard<std::recursive_mutex> Lock{OclocMutex};
+  auto Key = std::make_pair(IPVersion, std::string(Identifier));
+  auto It = Cache.find(Key);
+  if (It == Cache.end())
+    It =
+        Cache.emplace(std::move(Key), InvokeOclocQuery({IPVersion}, Identifier))
+            .first;
+  return It->second;
+}
+
 bool OpenCLC_Feature_Available(const std::string &Feature, uint32_t IPVersion) {
-  static std::string FeatureLog = "";
-  if (FeatureLog.empty()) {
-    try {
-      FeatureLog = InvokeOclocQuery({IPVersion}, "CL_DEVICE_OPENCL_C_FEATURES");
-    } catch (sycl::exception &) {
-      return false;
-    }
+  std::string FeatureLog;
+  try {
+    FeatureLog = getCachedQueryLog(IPVersion, "CL_DEVICE_OPENCL_C_FEATURES");
+  } catch (sycl::exception &) {
+    return false;
   }
 
   // Allright, we have FeatureLog, so let's find that feature!
@@ -402,14 +444,12 @@ bool OpenCLC_Feature_Available(const std::string &Feature, uint32_t IPVersion) {
 
 bool OpenCLC_Supports_Version(
     const ext::oneapi::experimental::cl_version &Version, uint32_t IPVersion) {
-  static std::string VersionLog = "";
-  if (VersionLog.empty()) {
-    try {
-      VersionLog =
-          InvokeOclocQuery({IPVersion}, "CL_DEVICE_OPENCL_C_ALL_VERSIONS");
-    } catch (sycl::exception &) {
-      return false;
-    }
+  std::string VersionLog;
+  try {
+    VersionLog =
+        getCachedQueryLog(IPVersion, "CL_DEVICE_OPENCL_C_ALL_VERSIONS");
+  } catch (sycl::exception &) {
+    return false;
   }
 
   // Have VersionLog, will search.
@@ -423,14 +463,12 @@ bool OpenCLC_Supports_Extension(
     const std::string &Name, ext::oneapi::experimental::cl_version *VersionPtr,
     uint32_t IPVersion) {
   std::error_code rt_errc = make_error_code(errc::runtime);
-  static std::string ExtensionByVersionLog = "";
-  if (ExtensionByVersionLog.empty()) {
-    try {
-      ExtensionByVersionLog =
-          InvokeOclocQuery({IPVersion}, "CL_DEVICE_EXTENSIONS_WITH_VERSION");
-    } catch (sycl::exception &) {
-      return false;
-    }
+  std::string ExtensionByVersionLog;
+  try {
+    ExtensionByVersionLog =
+        getCachedQueryLog(IPVersion, "CL_DEVICE_EXTENSIONS_WITH_VERSION");
+  } catch (sycl::exception &) {
+    return false;
   }
 
   // ExtensionByVersionLog is ready. Time to find Name, and update VersionPtr.
