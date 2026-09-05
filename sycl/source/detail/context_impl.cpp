@@ -108,12 +108,12 @@ context_impl::context_impl(ur_context_handle_t UrContext,
 }
 
 OpenCLContextT context_impl::get() const {
-  // TODO catch an exception and put it to list of asynchronous exceptions
-  getAdapter().call<UrApiKind::urContextRetain>(MContext);
-  ur_native_handle_t nativeHandle = 0;
-  getAdapter().call<UrApiKind::urContextGetNativeHandle>(MContext,
-                                                         &nativeHandle);
-  return ur::cast<OpenCLContextT>(nativeHandle);
+  // The caller of this deprecated API owns a reference to the returned
+  // cl_context and is expected to release it. Retaining the UR handle instead
+  // would not add a native reference, and would leave the UR handle
+  // permanently over-retained so that its wrapper is never destroyed. Reuse
+  // getNative(), which retains the native handle itself.
+  return ur::cast<OpenCLContextT>(getNative());
 }
 
 context_impl::~context_impl() {
