@@ -41,7 +41,10 @@ int main() {
   constexpr unsigned NumBlocks = 1;
   auto *block_store = malloc_shared<int>(size, q);
 
-  auto *ref = new int[size];
+  // std::vector, not new[]: main returns early from the exception handler below,
+  // so a manual delete[] at the end would still leak on that path.
+  std::vector<int> ref(size);
+
   // Fill dst and ref data which is untouched with random values
   for (int i = 0; i < size; i++)
     block_store[i] = ref[i] = rand() % 128;

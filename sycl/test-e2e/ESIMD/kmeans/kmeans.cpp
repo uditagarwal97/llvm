@@ -60,7 +60,9 @@ void clustering(Point *pts,         // points
     ctrds[j].y = accum[j].y_sum / accum[j].num_points;
     ctrds[j].num_points = accum[j].num_points;
   }
-  delete accum;
+  // accum comes from malloc, so it must go back through free: mixing it with
+  // operator delete is undefined behaviour and ASan aborts on it.
+  free(accum);
 }
 
 #define max(a, b) (((a) > (b)) ? (a) : (b))
