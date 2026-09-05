@@ -403,12 +403,14 @@ struct MergedDeviceRequirements {
     std::memcpy(NextFreeContent, "aspects", NameLen + 1);
     NewProperty->Name = NextFreeContent;
     NextFreeContent += NameLen + 1;
-    // Copy the values.
-    uint32_t *AspectContentIt = reinterpret_cast<uint32_t *>(NextFreeContent);
-    for (uint32_t Aspect : Aspects)
-      *(AspectContentIt++) = Aspect;
+    // Copy the values. NextFreeContent points into a densely packed blob, so it
+    // has no alignment guarantee - copy the bytes rather than storing through a
+    // reinterpreted uint32_t pointer.
     NewProperty->ValAddr = NextFreeContent;
-    NextFreeContent += NewProperty->ValSize;
+    for (uint32_t Aspect : Aspects) {
+      std::memcpy(NextFreeContent, &Aspect, sizeof(Aspect));
+      NextFreeContent += sizeof(Aspect);
+    }
   }
 
   static void writeStringSetProperty(
@@ -449,11 +451,14 @@ mergeDeviceRequirements(const std::vector<const RTDeviceBinaryImage *> &Imgs) {
 
       // Aspects we collect in a set early and add them afterwards.
       if (NameView == "aspects") {
-        // Skip size bytes.
-        auto AspectIt = reinterpret_cast<const uint32_t *>(
-            reinterpret_cast<char *>(Prop->ValAddr) + 8);
-        for (size_t I = 0; I < Prop->ValSize / sizeof(uint32_t); ++I)
-          MergedReqs.Aspects.emplace(AspectIt[I]);
+        // Skip size bytes. The values are densely packed and therefore not
+        // necessarily aligned for uint32_t, so read them with memcpy.
+        const char *AspectIt = reinterpret_cast<char *>(Prop->ValAddr) + 8;
+        for (size_t I = 0; I < Prop->ValSize / sizeof(uint32_t); ++I) {
+          uint32_t Aspect;
+          std::memcpy(&Aspect, AspectIt + I * sizeof(uint32_t), sizeof(Aspect));
+          MergedReqs.Aspects.emplace(Aspect);
+        }
         continue;
       }
 
