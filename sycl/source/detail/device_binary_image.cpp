@@ -344,6 +344,23 @@ exclusiveMergeBinaryProperties(
       /*DropProperty=*/[](std::string_view) { return false; });
 }
 
+// A SYCL_PROPERTY_TYPE_BYTE_ARRAY value starts with its payload size in bits,
+// encoded as 8 little-endian bytes, and ValSize covers that header as well as
+// the payload. See llvm::util::PropertyValue and
+// DeviceBinaryProperty::asStringView().
+static constexpr size_t ByteArrayHeaderSize = sizeof(uint64_t);
+
+// Writes the byte-array size header at NextFreeContent and moves the needle past
+// it. Consumers such as checkDevSupportDeviceRequirements() unconditionally drop
+// these bytes, so synthesised properties have to carry them too.
+static void writeByteArrayHeader(char *&NextFreeContent,
+                                 uint64_t PayloadByteSize) {
+  uint64_t BitSize = PayloadByteSize * 8;
+  for (size_t I = 0; I < ByteArrayHeaderSize; ++I, BitSize >>= 8)
+    NextFreeContent[I] = static_cast<char>(BitSize & 0xFF);
+  NextFreeContent += ByteArrayHeaderSize;
+}
+
 // Device requirements needs the ability to produce new properties. The
 // information for these are kept in this struct.
 struct MergedDeviceRequirements {
@@ -359,12 +376,12 @@ struct MergedDeviceRequirements {
   }
 
   size_t getAspectsContentSize() const {
-    return Aspects.size() * sizeof(uint32_t);
+    return ByteArrayHeaderSize + Aspects.size() * sizeof(uint32_t);
   }
 
   static size_t
   getStringSetContentSize(const std::unordered_set<std::string_view> &Set) {
-    size_t Result = 0;
+    size_t Result = ByteArrayHeaderSize;
     Result += Set.size() - 1;               // Semi-colon delimiters.
     for (const std::string_view &Str : Set) // Strings.
       Result += Str.size();
@@ -403,10 +420,11 @@ struct MergedDeviceRequirements {
     std::memcpy(NextFreeContent, "aspects", NameLen + 1);
     NewProperty->Name = NextFreeContent;
     NextFreeContent += NameLen + 1;
-    // Copy the values. NextFreeContent points into a densely packed blob, so it
-    // has no alignment guarantee - copy the bytes rather than storing through a
-    // reinterpreted uint32_t pointer.
+    // Copy the size header and then the values. NextFreeContent points into a
+    // densely packed blob, so it has no alignment guarantee - copy the bytes
+    // rather than storing through a reinterpreted uint32_t pointer.
     NewProperty->ValAddr = NextFreeContent;
+    writeByteArrayHeader(NextFreeContent, Aspects.size() * sizeof(uint32_t));
     for (uint32_t Aspect : Aspects) {
       std::memcpy(NextFreeContent, &Aspect, sizeof(Aspect));
       NextFreeContent += sizeof(Aspect);
@@ -427,8 +445,10 @@ struct MergedDeviceRequirements {
     std::memcpy(NextFreeContent, SetName, NameLen + 1);
     NewProperty->Name = NextFreeContent;
     NextFreeContent += NameLen + 1;
-    // Copy the values.
+    // Copy the size header and then the values.
     NewProperty->ValAddr = NextFreeContent;
+    writeByteArrayHeader(NextFreeContent,
+                         NewProperty->ValSize - ByteArrayHeaderSize);
     for (auto StrIt = Set.begin(); StrIt != Set.end(); ++StrIt) {
       if (StrIt != Set.begin())
         *(NextFreeContent++) = ';';
@@ -451,10 +471,17 @@ mergeDeviceRequirements(const std::vector<const RTDeviceBinaryImage *> &Imgs) {
 
       // Aspects we collect in a set early and add them afterwards.
       if (NameView == "aspects") {
-        // Skip size bytes. The values are densely packed and therefore not
-        // necessarily aligned for uint32_t, so read them with memcpy.
-        const char *AspectIt = reinterpret_cast<char *>(Prop->ValAddr) + 8;
-        for (size_t I = 0; I < Prop->ValSize / sizeof(uint32_t); ++I) {
+        // ValSize covers the size header as well as the payload, so the number
+        // of values has to be derived from what is left after the header. The
+        // values are densely packed and therefore not necessarily aligned for
+        // uint32_t, so read them with memcpy.
+        assert(Prop->ValSize >= ByteArrayHeaderSize &&
+               "aspects property smaller than its size header");
+        const char *AspectIt =
+            reinterpret_cast<char *>(Prop->ValAddr) + ByteArrayHeaderSize;
+        const size_t AspectCount =
+            (Prop->ValSize - ByteArrayHeaderSize) / sizeof(uint32_t);
+        for (size_t I = 0; I < AspectCount; ++I) {
           uint32_t Aspect;
           std::memcpy(&Aspect, AspectIt + I * sizeof(uint32_t), sizeof(Aspect));
           MergedReqs.Aspects.emplace(Aspect);
@@ -469,9 +496,13 @@ mergeDeviceRequirements(const std::vector<const RTDeviceBinaryImage *> &Imgs) {
             NameView == "joint_matrix" ? MergedReqs.JointMatrix
                                        : MergedReqs.JointMatrixMad;
 
-        // Skip size bytes.
-        std::string_view Contents{reinterpret_cast<char *>(Prop->ValAddr) + 8,
-                                  Prop->ValSize};
+        // Skip the size header; ValSize covers it, so drop it from the length
+        // too.
+        assert(Prop->ValSize >= ByteArrayHeaderSize &&
+               "joint matrix property smaller than its size header");
+        std::string_view Contents{
+            reinterpret_cast<char *>(Prop->ValAddr) + ByteArrayHeaderSize,
+            Prop->ValSize - ByteArrayHeaderSize};
         size_t Pos = 0;
         do {
           const size_t NextPos = Contents.find(';', Pos);
