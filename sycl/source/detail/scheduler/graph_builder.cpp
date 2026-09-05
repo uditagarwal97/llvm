@@ -925,6 +925,37 @@ static void combineAccessModesOfReqs(std::vector<Requirement *> &Reqs) {
   }
 }
 
+namespace {
+/// Detaches a command from the graph if the unique_ptr that created it still
+/// owns it when this guard goes out of scope, i.e. if an exception is unwinding
+/// out of the graph insertion. From the first addDep() onwards, other commands'
+/// MUsers and the memory object leaf lists already point at the new command, so
+/// freeing it without unlinking leaves dangling pointers behind for the next
+/// graph walk to dereference.
+template <typename CmdT> class CommandUnlinkGuard {
+public:
+  explicit CommandUnlinkGuard(const std::unique_ptr<CmdT> &Owner)
+      : MOwner(Owner) {}
+
+  ~CommandUnlinkGuard() {
+    Command *Cmd = MOwner.get();
+    if (!Cmd)
+      return;
+    for (const DepDesc &Dep : Cmd->MDeps)
+      if (MemObjRecord *Record =
+              Scheduler::getMemObjRecord(Dep.MDepRequirement)) {
+        Record->MReadLeaves.remove(Cmd);
+        Record->MWriteLeaves.remove(Cmd);
+      }
+    Cmd->unlinkFromNeighbours();
+  }
+
+private:
+  const std::unique_ptr<CmdT> &MOwner;
+};
+} // namespace
+
+
 Command *Scheduler::GraphBuilder::addCG(
     std::unique_ptr<detail::CG> CommandGroup, queue_impl *Queue,
     std::vector<Command *> &ToEnqueue, bool EventNeeded,
@@ -940,7 +971,10 @@ Command *Scheduler::GraphBuilder::addCG(
     throw exception(make_error_code(errc::memory_allocation),
                     "Out of host memory");
 
+  CommandUnlinkGuard<ExecCGCommand> UnlinkGuard(NewCmd);
+
   bool isInteropTask = isInteropHostTask(NewCmd.get());
+
 
   if (MPrintOptionsArray[BeforeAddCG])
     printGraphAsDot("before_addCG");
@@ -1283,6 +1317,7 @@ Command *Scheduler::GraphBuilder::addCommandGraphUpdate(
     std::vector<Command *> &ToEnqueue) {
   auto NewCmd =
       std::make_unique<UpdateCommandBufferCommand>(Queue, Graph, Nodes);
+  CommandUnlinkGuard<UpdateCommandBufferCommand> UnlinkGuard(NewCmd);
   // If there are multiple requirements for the same memory object, its
   // AllocaCommand creation will be dependent on the access mode of the first
   // requirement. Combine these access modes to take all of them into account.
