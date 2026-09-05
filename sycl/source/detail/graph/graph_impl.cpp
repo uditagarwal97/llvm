@@ -835,7 +835,7 @@ void graph_impl::makeEdge(node_impl &Src, node_impl &Dest) {
   // We can skip cycle checks if either Dest has no successors (cycle not
   // possible) or cycle checks have been disabled with the no_cycle_check
   // property;
-  if (Dest.MSuccessors.empty() || !MSkipCycleChecks) {
+  if (!Dest.MSuccessors.empty() && !MSkipCycleChecks) {
     bool CycleFound = checkForCycles();
 
     if (CycleFound) {
