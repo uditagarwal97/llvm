@@ -303,10 +303,11 @@ public:
   bool empty() const;
 
   /// Find the last node added to this graph from an in-order queue.
+  /// Does not lock; the caller must hold at least a ReadLock on MMutex.
   /// @param Queue In-order queue to find the last node added to the graph from.
-  /// @return Last node in this graph added from \p Queue recording, or empty
-  /// shared pointer if none.
-  node_impl *getLastInorderNode(sycl::detail::queue_impl *Queue);
+  /// @return Last node in this graph added from \p Queue recording, or nullptr
+  /// if none.
+  node_impl *getLastInorderNode(sycl::detail::queue_impl *Queue) const;
 
   /// Track the last node added to this graph from an in-order queue.
   /// @param Queue In-order queue to register \p Node for.
@@ -351,6 +352,7 @@ public:
 
   /// Throws an invalid exception if this function is called
   /// while a queue is recording commands to the graph.
+  /// Does not lock; the caller must hold at least a ReadLock on MMutex.
   /// @param ExceptionMsg Message to append to the exception message
   void throwIfGraphRecordingQueue(const std::string ExceptionMsg) const {
     if (MRecordingQueues.size()) {
@@ -465,16 +467,9 @@ public:
   /// @return Number of nodes in the Graph
   size_t getNumberOfNodes() const { return MNodeStorage.size(); }
 
-  /// Traverse the graph recursively to get the events associated with the
-  /// output nodes of this graph associated with a specific queue.
-  /// @param[in] Queue The queue exit nodes must have been recorded from.
-  /// @return vector of events associated to exit nodes.
-  std::vector<sycl::detail::EventImplPtr>
-  getExitNodesEvents(std::weak_ptr<sycl::detail::queue_impl> Queue);
-
   /// Sets the Queue state to queue_state::recording. Adds the queue to the list
   /// of recording queues associated with this graph.
-  /// Does not take the queue submission lock.
+  /// Does not take the queue submission lock; the caller must already hold it.
   ///
   /// Required for the cases, when the recording is started directly
   /// from within the kernel submission flow.

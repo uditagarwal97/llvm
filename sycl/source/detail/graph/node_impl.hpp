@@ -18,6 +18,7 @@
 #include <sycl/ext/oneapi/experimental/enqueue_types.hpp> // for prefetchType
 #include <sycl/ext/oneapi/experimental/graph/node.hpp>    // for node
 
+#include <atomic>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
@@ -525,10 +526,12 @@ private:
   // Gets the next unique identifier for a node, should only be used when
   // constructing nodes.
   static id_type getNextNodeID() {
-    static id_type nextID = 0;
+    // Nodes of distinct graphs are created under distinct per-graph locks, so
+    // this counter needs to be atomic.
+    static std::atomic<id_type> NextAvailableID = 0;
 
     // Return the value then increment the next ID
-    return nextID++;
+    return NextAvailableID++;
   }
 
   /// Prints Node information to Stream.

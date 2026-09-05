@@ -46,9 +46,15 @@ std::vector<detail::node_impl *> getDepGraphNodes(
   // If this is being recorded from an in-order queue we need to get the last
   // in-order node if any, since this will later become a dependency of the
   // node being processed here.
-  if (detail::node_impl *LastInOrderNode = Graph->getLastInorderNode(Queue);
-      LastInOrderNode) {
-    DepNodes.push_back(LastInOrderNode);
+  // getLastInorderNode() does not lock, so take the graph read lock here. No
+  // graph lock is held on entry to this function: getNodesForEvents() above
+  // takes and releases a ReadLock on the same mutex.
+  {
+    detail::graph_impl::ReadLock Lock(Graph->MMutex);
+    if (detail::node_impl *LastInOrderNode = Graph->getLastInorderNode(Queue);
+        LastInOrderNode) {
+      DepNodes.push_back(LastInOrderNode);
+    }
   }
   return DepNodes;
 }
