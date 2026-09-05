@@ -381,10 +381,6 @@ public:
     return MCommandBufferCommand;
   }
 
-  const std::vector<EventImplPtr> &getPostCompleteEvents() const {
-    return MPostCompleteEvents;
-  }
-
   void setEnqueued() { MIsEnqueued = true; }
 
   bool isHost() { return MIsHostEvent; }
@@ -421,8 +417,13 @@ protected:
   void checkProfilingPreconditions() const;
 
   std::atomic<ur_event_handle_t> MEvent = nullptr;
-  // Stores submission time of command associated with event
-  uint64_t MSubmitTime = 0;
+  // Stores submission time of command associated with event.
+  // Written without any lock by setSubmissionTime() on the enqueue path and by
+  // get_profiling_info<command_submit>(), which can run on any number of user
+  // threads at once. Atomic so those don't tear a 64-bit value against each
+  // other. Relaxed accesses are enough: the value is a documented estimate and
+  // nothing else is published through it.
+  std::atomic<uint64_t> MSubmitTime = 0;
   std::shared_ptr<context_impl> MContext;
   std::unique_ptr<HostProfilingInfo> MHostProfilingInfo;
   // Written under one of the scheduler's graph locks, but read without any lock
