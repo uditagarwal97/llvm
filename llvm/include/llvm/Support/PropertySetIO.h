@@ -73,7 +73,10 @@ public:
   }
 
   PropertyValue() = default;
-  PropertyValue(Type T) : Ty(T) {}
+  // The union member is set later via set(), but the destructor and the
+  // assignment operators inspect it as soon as Ty says BYTE_ARRAY, so it must
+  // not be left indeterminate.
+  PropertyValue(Type T) : Ty(T) { Val.ByteArrayVal = nullptr; }
 
   PropertyValue(uint32_t Val) : Ty(UINT32), Val({Val}) {}
   PropertyValue(const byte *Data, SizeTy DataBitSize);
@@ -171,6 +174,9 @@ public:
 
 private:
   template <typename T> T &getValueRef();
+
+  // Frees the byte array this value owns, if any.
+  void releaseByteArray();
 
   Type Ty = NONE;
   // TODO: replace this union with std::variant when uplifting to C++17

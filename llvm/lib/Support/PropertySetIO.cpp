@@ -177,7 +177,19 @@ PropertyValue::PropertyValue(const PropertyValue &P) { *this = P; }
 
 PropertyValue::PropertyValue(PropertyValue &&P) { *this = std::move(P); }
 
+// Both assignment operators overwrite Val, so whatever byte array it owns has
+// to be freed first. Ty is reset as well to keep the object consistent in case
+// no new value is assigned right after.
+void PropertyValue::releaseByteArray() {
+  if (getType() == BYTE_ARRAY)
+    delete[] Val.ByteArrayVal;
+  Ty = NONE;
+}
+
 PropertyValue &PropertyValue::operator=(PropertyValue &&P) {
+  if (this == &P)
+    return *this;
+  releaseByteArray();
   Ty = P.Ty;
   Val = P.Val;
   if (P.getType() == BYTE_ARRAY)
@@ -188,8 +200,11 @@ PropertyValue &PropertyValue::operator=(PropertyValue &&P) {
 
 PropertyValue &PropertyValue::operator=(const PropertyValue &P) {
   if (P.getType() == BYTE_ARRAY) {
+    // The temporary already owns a copy of P's data when the move assignment
+    // frees this object's array, so self-assignment is safe.
     *this = PropertyValue(P.asByteArray(), P.getByteArraySizeInBits());
   } else {
+    releaseByteArray();
     Ty = P.Ty;
     Val = P.Val;
   }
