@@ -11,6 +11,7 @@
 #include <sycl/detail/spinlock.hpp>
 #include <sycl/detail/util.hpp>
 
+#include <atomic>
 #include <memory>
 #include <unordered_map>
 
@@ -104,7 +105,11 @@ private:
   GlobalHandler();
   ~GlobalHandler();
 
-  bool OkToDefer = true;
+  // Cleared by endDeferredRelease() on the thread running static destruction,
+  // and read by isOkToDefer() on whichever thread is releasing a memory object
+  // - including a host task worker, which shutdown_early() only waits for
+  // *after* clearing this. Atomic so those two do not race.
+  std::atomic<bool> OkToDefer = true;
 
   friend void shutdown_early(bool);
   friend void shutdown_late();
