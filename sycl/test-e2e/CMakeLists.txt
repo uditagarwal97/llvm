@@ -14,6 +14,9 @@ if(SYCL_TEST_E2E_STANDALONE)
   if( NOT OpenCL_LIBRARY )
     find_package(OpenCL)
   endif()
+  if(OpenCL_LIBRARY)
+    get_filename_component(OPENCL_LIBS_DIR "${OpenCL_LIBRARY}" DIRECTORY)
+  endif()
   if(NOT DEFINED LEVEL_ZERO_INCLUDE)
     find_path(LEVEL_ZERO_PATH level_zero/ze_api.h PATH_SUFFIXES include)
     if(LEVEL_ZERO_PATH)
@@ -30,8 +33,15 @@ if(SYCL_TEST_E2E_STANDALONE)
     endif()
   endif()
 else()
-  if( NOT OpenCL_LIBRARY )
-    set(OpenCL_LIBRARY "${LLVM_BINARY_DIR}/lib")
+  # unified-runtime's FetchOpenCL.cmake force-sets OpenCL_LIBRARY to the
+  # "OpenCL" CMake target name, so it is not a path and cannot be used as one.
+  # Use the ICD loader that module actually selected: a system one if it found
+  # a usable install, otherwise the loader it fetched and built into our own
+  # library directory.
+  if(OpenCL_LIBRARY_CAND)
+    get_filename_component(OPENCL_LIBS_DIR "${OpenCL_LIBRARY_CAND}" DIRECTORY)
+  elseif(OpenCL_LIBRARY)
+    set(OPENCL_LIBS_DIR "${LLVM_LIBRARY_DIR}")
   endif()
   set(LEVEL_ZERO_INCLUDE "${LLVM_BINARY_DIR}/_deps/level-zero-loader-src/include")
   set(LEVEL_ZERO_LIBS_DIR "${LLVM_BINARY_DIR}/lib")
