@@ -105,7 +105,8 @@ void GlobalHandler::TraceEventXPTI(const char *Message) {
 #endif
 }
 
-GlobalHandler *GlobalHandler::RTGlobalObjHandler = new GlobalHandler();
+std::atomic<GlobalHandler *> GlobalHandler::RTGlobalObjHandler{
+    new GlobalHandler()};
 
 template <typename T, typename... Types>
 T &GlobalHandler::getOrCreate(InstWithLock<T> &IWL, Types &&...Args) {
@@ -307,7 +308,9 @@ void GlobalHandler::drainThreadPool() {
 //  2) when process is being terminated
 void shutdown_early(bool CanJoinThreads = true) {
   const LockGuard Lock{GlobalHandler::MSyclGlobalHandlerProtector};
-  if (!GlobalHandler::RTGlobalObjHandler)
+  GlobalHandler *GH =
+      GlobalHandler::RTGlobalObjHandler.load(std::memory_order_relaxed);
+  if (!GH)
     return;
 
 #if defined(XPTI_ENABLE_INSTRUMENTATION) && defined(_WIN32)
@@ -317,16 +320,15 @@ void shutdown_early(bool CanJoinThreads = true) {
 #endif
 
   // Now that we are shutting down, we will no longer defer MemObj releases.
-  GlobalHandler::RTGlobalObjHandler->endDeferredRelease();
+  GH->endDeferredRelease();
 
   // Ensure neither host task is working so that no default context is accessed
   // upon its release
-  GlobalHandler::RTGlobalObjHandler->prepareSchedulerToRelease(true);
+  GH->prepareSchedulerToRelease(true);
 
-  if (GlobalHandler::RTGlobalObjHandler->MHostTaskThreadPool.Inst) {
-    GlobalHandler::RTGlobalObjHandler->MHostTaskThreadPool.Inst->finishAndWait(
-        CanJoinThreads);
-    GlobalHandler::RTGlobalObjHandler->MHostTaskThreadPool.Inst.reset(nullptr);
+  if (GH->MHostTaskThreadPool.Inst) {
+    GH->MHostTaskThreadPool.Inst->finishAndWait(CanJoinThreads);
+    GH->MHostTaskThreadPool.Inst.reset(nullptr);
   }
 
   // Reset in-memory cache before releasing default contexts.
@@ -334,11 +336,10 @@ void shutdown_early(bool CanJoinThreads = true) {
     // Keeping the default context for platforms in the global cache to avoid
     // shared_ptr based circular dependency between platform and context classes
     std::lock_guard<std::mutex> Lock{
-        GlobalHandler::RTGlobalObjHandler
-            ->getPlatformToDefaultContextCacheMutex()};
+        GH->getPlatformToDefaultContextCacheMutex()};
 
     auto &PlatformToDefaultContextCache =
-        GlobalHandler::RTGlobalObjHandler->getPlatformToDefaultContextCache();
+        GH->getPlatformToDefaultContextCache();
 
     for (auto &Pair : PlatformToDefaultContextCache) {
       Pair.second->getKernelProgramCache().reset();
@@ -347,12 +348,14 @@ void shutdown_early(bool CanJoinThreads = true) {
 
   // This releases OUR reference to the default context, but
   // other may yet have refs
-  GlobalHandler::RTGlobalObjHandler->releaseDefaultContexts();
+  GH->releaseDefaultContexts();
 }
 
 void shutdown_late() {
   const LockGuard Lock{GlobalHandler::MSyclGlobalHandlerProtector};
-  if (!GlobalHandler::RTGlobalObjHandler)
+  GlobalHandler *GH =
+      GlobalHandler::RTGlobalObjHandler.load(std::memory_order_relaxed);
+  if (!GH)
     return;
 
 #if defined(XPTI_ENABLE_INSTRUMENTATION) && defined(_WIN32)
@@ -362,20 +365,22 @@ void shutdown_late() {
 #endif
 
   // First, release resources, that may access adapters.
-  GlobalHandler::RTGlobalObjHandler->MPlatformCache.Inst.reset(nullptr);
-  GlobalHandler::RTGlobalObjHandler->MScheduler.Inst.reset(nullptr);
-  GlobalHandler::RTGlobalObjHandler->MProgramManager.Inst.reset(nullptr);
+  GH->MPlatformCache.Inst.reset(nullptr);
+  GH->MScheduler.Inst.reset(nullptr);
+  GH->MProgramManager.Inst.reset(nullptr);
 
   // Clear the adapters and reset the instance if it was there.
-  GlobalHandler::RTGlobalObjHandler->unloadAdapters();
-  if (GlobalHandler::RTGlobalObjHandler->MAdapters.Inst)
-    GlobalHandler::RTGlobalObjHandler->MAdapters.Inst.reset(nullptr);
+  GH->unloadAdapters();
+  if (GH->MAdapters.Inst)
+    GH->MAdapters.Inst.reset(nullptr);
 
-  GlobalHandler::RTGlobalObjHandler->MXPTIRegistry.Inst.reset(nullptr);
+  GH->MXPTIRegistry.Inst.reset(nullptr);
 
-  // Release the rest of global resources.
-  delete GlobalHandler::RTGlobalObjHandler;
-  GlobalHandler::RTGlobalObjHandler = nullptr;
+  // Release the rest of global resources. Publish the null before deleting, so
+  // that a late load from another thread is more likely to see "torn down"
+  // rather than a pointer to freed memory.
+  GlobalHandler::RTGlobalObjHandler.store(nullptr, std::memory_order_relaxed);
+  delete GH;
 }
 
 #ifdef _WIN32

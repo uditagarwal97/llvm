@@ -12,6 +12,7 @@
 #include <sycl/detail/util.hpp>
 
 #include <atomic>
+#include <cassert>
 #include <memory>
 #include <unordered_map>
 
@@ -42,11 +43,19 @@ class ThreadPool;
 /// construction or destruction is generated anyway.
 class GlobalHandler {
 public:
-  static bool isInstanceAlive() { return RTGlobalObjHandler != nullptr; }
+  static bool isInstanceAlive() {
+    return RTGlobalObjHandler.load(std::memory_order_relaxed) != nullptr;
+  }
   /// \return a reference to a GlobalHandler singleton instance. The reference
   /// is valid as long as runtime library is loaded (i.e. until `DllMain` or
   /// `__attribute__((destructor))` is called).
-  static GlobalHandler &instance() { return *RTGlobalObjHandler; }
+  static GlobalHandler &instance() {
+    // Load once: re-loading could observe the shutdown store in between the
+    // check and the dereference.
+    GlobalHandler *Handler = RTGlobalObjHandler.load(std::memory_order_relaxed);
+    assert(Handler && "GlobalHandler is used after runtime teardown");
+    return *Handler;
+  }
 
   GlobalHandler(const GlobalHandler &) = delete;
   GlobalHandler(GlobalHandler &&) = delete;
@@ -140,7 +149,13 @@ private:
   // Thread pool for host task and event callbacks execution
   InstWithLock<ThreadPool> MHostTaskThreadPool;
 
-  static GlobalHandler *RTGlobalObjHandler;
+  // Nulled by shutdown_late() on the thread running static destruction, while
+  // threads that outlive it - a host task worker, or user code calling into the
+  // runtime from another global's destructor - may still be loading it via
+  // instance()/isInstanceAlive() without MSyclGlobalHandlerProtector. Atomic so
+  // those loads are well defined; relaxed is enough, the object's own state is
+  // guarded by its per-member locks.
+  static std::atomic<GlobalHandler *> RTGlobalObjHandler;
 };
 
 } // namespace detail
