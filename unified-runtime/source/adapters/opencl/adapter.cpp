@@ -11,6 +11,9 @@
 #include "common.hpp"
 #include "ur/ur.hpp"
 
+#include <atomic>
+#include <mutex>
+
 #ifndef UR_STATIC_ADAPTER_OPENCL
 #ifdef _MSC_VER
 #include <Windows.h>
@@ -22,8 +25,16 @@
 // There can only be one OpenCL adapter alive at a time.
 // If it is alive (more get/retains than releases called), this is a pointer to
 // it.
-static ur_adapter_handle_t liveAdapter = nullptr;
+//
+// Atomic because ur::cl::getAdapter() reads it on every adapter entry point and
+// must not take a lock there. AdapterLifetimeMutex serialises the two paths
+// that change its value - urAdapterGet() (create-or-retain) and
+// urAdapterRelease() (release-and-destroy) - so that a retain can never land on
+// an adapter whose reference count has already dropped to zero.
+static std::atomic<ur_adapter_handle_t> liveAdapter = nullptr;
+static std::mutex AdapterLifetimeMutex;
 
+// Called only from urAdapterGet(), which holds AdapterLifetimeMutex.
 ur::opencl::ur_adapter_handle_t_::ur_adapter_handle_t_() : handle_base() {
 #ifdef UR_STATIC_ADAPTER_OPENCL
   if (!ocl::loadOCLLibrary()) {
@@ -70,6 +81,8 @@ ur::opencl::ur_adapter_handle_t_::ur_adapter_handle_t_() : handle_base() {
   liveAdapter = cast(this);
 }
 
+// Called only from urAdapterGet()/urAdapterRelease(), which hold
+// AdapterLifetimeMutex.
 ur::opencl::ur_adapter_handle_t_::~ur_adapter_handle_t_() {
 #ifdef UR_STATIC_ADAPTER_OPENCL
   if (liveAdapter == cast(this)) {
@@ -93,12 +106,10 @@ namespace ur::opencl {
 
 ur_result_t urAdapterGet(uint32_t NumEntries, ur_adapter_handle_t *phAdapters,
                          uint32_t *pNumAdapters) {
-  static std::mutex AdapterConstructionMutex{};
-
   // Always construct the adapter, even for count-only queries (NumEntries==0),
   // because the loader may bypass the intercept and call this directly when
   // there is only one platform registered.
-  std::lock_guard<std::mutex> Lock{AdapterConstructionMutex};
+  std::lock_guard<std::mutex> Lock{AdapterLifetimeMutex};
 
   if (!liveAdapter) {
     ur::opencl::ur_adapter_handle_t_ *newAdapter =
@@ -114,7 +125,7 @@ ur_result_t urAdapterGet(uint32_t NumEntries, ur_adapter_handle_t *phAdapters,
 
   if (NumEntries > 0 && phAdapters) {
     *phAdapters = liveAdapter;
-    cast(liveAdapter)->RefCount.retain();
+    cast(liveAdapter.load())->RefCount.retain();
   }
 
   if (pNumAdapters) {
@@ -131,6 +142,10 @@ ur_result_t urAdapterRetain(ur_adapter_handle_t hAdapter) {
 }
 
 ur_result_t urAdapterRelease(ur_adapter_handle_t hAdapter) {
+  // Hold the lock across the release decision and the destruction, so a
+  // concurrent urAdapterGet() cannot retain an adapter that is about to go
+  // away.
+  std::lock_guard<std::mutex> Lock{AdapterLifetimeMutex};
   auto Adapter = cast(hAdapter);
   if (Adapter->RefCount.release()) {
     delete Adapter;
