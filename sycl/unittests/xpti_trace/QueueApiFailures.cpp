@@ -463,11 +463,14 @@ TEST_F(QueueApiFailures, QueueKernelAsync) {
   bool ExceptionCaught = false;
   event EventToDepend;
 
-  std::mutex m;
-  std::function<void()> CustomHostLambda = [&m]() {
-    std::unique_lock<std::mutex> InsideHostTaskLock(m);
+  // Must not be called 'm': that would shadow the global mutex guarding
+  // EnqueueKernelLaunchCalled, and the cv.wait() below would then check the
+  // flag while holding this mutex instead of the one the writer takes.
+  std::mutex HostTaskMutex;
+  std::function<void()> CustomHostLambda = [&HostTaskMutex]() {
+    std::unique_lock<std::mutex> InsideHostTaskLock(HostTaskMutex);
   };
-  std::unique_lock<std::mutex> TestLock(m, std::defer_lock);
+  std::unique_lock<std::mutex> TestLock(HostTaskMutex, std::defer_lock);
   TestLock.lock();
   try {
     EventToDepend = Q.submit(
