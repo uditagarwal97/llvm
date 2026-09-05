@@ -434,11 +434,11 @@ void Scheduler::enqueueUnblockedCommands(events_range ToEnqueue,
       // it. Schedule it for deletion the same way enqueueCommandForCG() does,
       // otherwise it keeps its queue, and everything the queue owns, alive
       // forever through the shared_ptr in Command::MQueue.
+      // Two host tasks completing at once can both reach this for the same
+      // blocked command, so the claim has to be atomic.
       if (Cmd->MEnqueueStatus == EnqueueResultT::SyclEnqueueFailed &&
-          Cmd->MLeafCounter == 0 && !Cmd->MMarkedForCleanup) {
-        Cmd->MMarkedForCleanup = true;
+          Cmd->MLeafCounter == 0 && !Cmd->MMarkedForCleanup.exchange(true))
         ToCleanUp.push_back(Cmd);
-      }
       throw;
     }
   }
@@ -518,10 +518,8 @@ void Scheduler::NotifyHostTaskCompletion(Command *Cmd) {
 
     std::vector<DepDesc> Deps = Cmd->MDeps;
     // Host tasks are cleaned up upon completion rather than enqueuing.
-    if (Cmd->MLeafCounter == 0) {
+    if (Cmd->MLeafCounter == 0 && !Cmd->MMarkedForCleanup.exchange(true))
       ToCleanUp.push_back(Cmd);
-      Cmd->MMarkedForCleanup = true;
-    }
     {
       std::lock_guard<std::mutex> Guard(Cmd->MBlockedUsersMutex);
       // update self-event status

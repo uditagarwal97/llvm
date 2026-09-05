@@ -913,13 +913,14 @@ bool Command::enqueue(EnqueueResultT &EnqueueResult, BlockingT Blocking,
     // Consider the command is successfully enqueued if return code is
     // UR_RESULT_SUCCESS
     MEnqueueStatus = EnqueueResultT::SyclEnqueueSuccess;
+    // The exchange claims the command for cleanup: it replaces the former
+    // assert(!MMarkedForCleanup) with the same invariant made race-free, since
+    // another read-lock holder may be claiming this command concurrently.
     if (MLeafCounter == 0 && supportsPostEnqueueCleanup() &&
         !SYCLConfig<SYCL_DISABLE_EXECUTION_GRAPH_CLEANUP>::get() &&
-        !SYCLConfig<SYCL_DISABLE_POST_ENQUEUE_CLEANUP>::get()) {
-      assert(!MMarkedForCleanup);
-      MMarkedForCleanup = true;
+        !SYCLConfig<SYCL_DISABLE_POST_ENQUEUE_CLEANUP>::get() &&
+        !MMarkedForCleanup.exchange(true))
       ToCleanUp.push_back(this);
-    }
   }
 
   // Emit this correlation signal before the task end
