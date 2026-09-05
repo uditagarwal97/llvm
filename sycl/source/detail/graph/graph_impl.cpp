@@ -775,16 +775,18 @@ bool graph_impl::checkForCycles() {
   return CycleFound;
 }
 
-node_impl *graph_impl::getLastInorderNode(sycl::detail::queue_impl *Queue) {
+node_impl *
+graph_impl::getLastInorderNode(sycl::detail::queue_impl *Queue) const {
   if (!Queue) {
     assert(0 ==
            MInorderQueueMap.count(std::weak_ptr<sycl::detail::queue_impl>{}));
-    return {};
+    return nullptr;
   }
-  if (0 == MInorderQueueMap.count(Queue->weak_from_this())) {
-    return {};
-  }
-  return MInorderQueueMap[Queue->weak_from_this()];
+  // Must be a pure read of MInorderQueueMap: operator[] would insert a
+  // default-constructed entry, which is a write on a path where callers may
+  // only hold a ReadLock.
+  auto It = MInorderQueueMap.find(Queue->weak_from_this());
+  return It == MInorderQueueMap.end() ? nullptr : It->second;
 }
 
 void graph_impl::setLastInorderNode(sycl::detail::queue_impl &Queue,
@@ -854,25 +856,7 @@ void graph_impl::makeEdge(node_impl &Src, node_impl &Dest) {
   removeRoot(Dest); // remove receiver from root node list
 }
 
-std::vector<sycl::detail::EventImplPtr> graph_impl::getExitNodesEvents(
-    std::weak_ptr<sycl::detail::queue_impl> RecordedQueue) {
-  std::vector<sycl::detail::EventImplPtr> Events;
-
-  auto RecordedQueueSP = RecordedQueue.lock();
-  for (node_impl &Node : nodes()) {
-    if (Node.MSuccessors.empty()) {
-      auto EventForNode = getEventForNode(Node);
-      if (EventForNode->getSubmittedQueue() == RecordedQueueSP) {
-        Events.push_back(getEventForNode(Node));
-      }
-    }
-  }
-
-  return Events;
-}
-
-void graph_impl::beginRecordingImpl(sycl::detail::queue_impl &Queue,
-                                    bool AcquireQueueLock) {
+void graph_impl::beginRecordingImpl(sycl::detail::queue_impl &Queue) {
   graph_impl::WriteLock Lock(MMutex);
 
   // Native recording limitation: single queue at a time
@@ -2175,7 +2159,6 @@ modifiable_command_graph::modifiable_command_graph(
 
 node modifiable_command_graph::addImpl(dynamic_command_group &DynCGF,
                                        const std::vector<node> &Deps) {
-  impl->throwIfGraphRecordingQueue("Explicit API \"Add()\" function");
   auto DynCGFImpl = sycl::detail::getSyclObjImpl(DynCGF);
 
   if (DynCGFImpl->MGraph != impl) {
@@ -2185,21 +2168,26 @@ node modifiable_command_graph::addImpl(dynamic_command_group &DynCGF,
   }
 
   graph_impl::WriteLock Lock(impl->MMutex);
+  impl->throwIfGraphRecordingQueue("Explicit API \"Add()\" function");
   detail::node_impl &NodeImpl = impl->add(DynCGFImpl, Deps);
   return sycl::detail::createSyclObjFromImpl<node>(NodeImpl);
 }
 
 node modifiable_command_graph::addImpl(const std::vector<node> &Deps) {
-  impl->throwIfGraphRecordingQueue("Explicit API \"Add()\" function");
-
   graph_impl::WriteLock Lock(impl->MMutex);
+  impl->throwIfGraphRecordingQueue("Explicit API \"Add()\" function");
   detail::node_impl &NodeImpl = impl->add(Deps);
   return sycl::detail::createSyclObjFromImpl<node>(NodeImpl);
 }
 
 node modifiable_command_graph::addImpl(std::function<void(handler &)> CGF,
                                        const std::vector<node> &Deps) {
-  impl->throwIfGraphRecordingQueue("Explicit API \"Add()\" function");
+  // graph_impl::add() below processes the CGF unlocked and takes the WriteLock
+  // itself, so the check can only be done in a separate, scoped lock here.
+  {
+    graph_impl::ReadLock Lock(impl->MMutex);
+    impl->throwIfGraphRecordingQueue("Explicit API \"Add()\" function");
+  }
 
   detail::node_impl &NodeImpl = impl->add(CGF, {}, Deps);
   return sycl::detail::createSyclObjFromImpl<node>(NodeImpl);
