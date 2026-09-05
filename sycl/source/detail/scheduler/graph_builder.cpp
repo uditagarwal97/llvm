@@ -1225,9 +1225,14 @@ Command *Scheduler::GraphBuilder::connectDepEvent(
 
   try {
     std::shared_ptr<detail::HostTask> HT(new detail::HostTask);
+    // Submit on the worker queue rather than Cmd->getQueue(). A memory copy to
+    // the host has a null MQueue but still runs on its source queue, and it is
+    // the worker context that processDepEvent found to differ from DepEvent's,
+    // so the worker queue is the one this glue task belongs to. Using MQueue
+    // would leave the host task with no submit queue at all.
     std::unique_ptr<detail::CG> ConnectCG(new detail::CGHostTask(
-        std::move(HT), /* Queue = */ Cmd->getQueue(), /* Context = */ nullptr,
-        /* Args = */ {},
+        std::move(HT), /* Queue = */ Cmd->getWorkerQueue(),
+        /* Context = */ nullptr, /* Args = */ {},
         detail::CG::StorageInitHelper(
             /* ArgsStorage = */ {}, /* AccStorage = */ {},
             /* SharedPtrStorage = */ {}, /* Requirements = */ {},
