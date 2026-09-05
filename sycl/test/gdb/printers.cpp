@@ -67,7 +67,7 @@ sycl::item<2, false> item_wo_offset =
 // CHECK:       120 |     void * MUserPtr
 
 // CHECK:         0 | class sycl::detail::platform_impl
-// CHECK:        32 |   backend MBackend
+// CHECK:        24 |   backend MBackend
 
 // CHECK:         0 | class sycl::detail::device_impl
 // CHECK:         8 |   platform_impl & MPlatform

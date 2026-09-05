@@ -29,6 +29,8 @@ namespace sycl {
 inline namespace _V1 {
 namespace detail {
 
+thread_local bool platform_impl::MAlwaysRootDevice = false;
+
 platform_impl::platform_impl(ur_platform_handle_t APlatform,
                              adapter_impl &Adapter)
     : MPlatform(APlatform), MAdapter(&Adapter) {
@@ -306,8 +308,7 @@ static bool supportsPartitionProperty(const device &dev,
 
 static std::vector<device> amendDeviceAndSubDevices(
     backend PlatformBackend, std::vector<device> &DeviceList,
-    ods_target_list *OdsTargetList, const std::vector<int> &original_indices,
-    platform_impl &PlatformImpl) {
+    ods_target_list *OdsTargetList, const std::vector<int> &original_indices) {
   constexpr info::partition_property partitionProperty =
       info::partition_property::partition_by_affinity_domain;
   constexpr info::partition_affinity_domain affinityDomain =
@@ -315,8 +316,10 @@ static std::vector<device> amendDeviceAndSubDevices(
 
   std::vector<device> FinalResult;
   // (Only) when amending sub-devices for ONEAPI_DEVICE_SELECTOR, all
-  // sub-devices are treated as root.
-  TempAssignGuard<bool> TAG(PlatformImpl.MAlwaysRootDevice, true);
+  // sub-devices are treated as root. The flag is thread-local, so the guard
+  // only affects device_impl objects created by this thread, and nested guards
+  // still restore in LIFO order.
+  TempAssignGuard<bool> TAG(platform_impl::MAlwaysRootDevice, true);
 
   for (unsigned i = 0; i < DeviceList.size(); i++) {
     // device has already been screened. The question is whether it should be a
@@ -546,7 +549,7 @@ void platform_impl::getDevicesImplHelper(ur_device_type_t UrDeviceType,
   // Otherwise, our last step is to revisit the devices, possibly replacing
   // them with subdevices (which have been ignored until now)
   OutVec = amendDeviceAndSubDevices(getBackend(), OutVec, OdsTargetList,
-                                    PlatformDeviceIndices, PlatformImpl);
+                                    PlatformDeviceIndices);
 }
 
 bool platform_impl::has_extension(const std::string &ExtensionName) const {
