@@ -1,5 +1,10 @@
 // REQUIRES: linux
 
+// The TSan build links the sanitizer runtime into everything %clang produces,
+// including the interposer below - preloading that into sycl-ls, which already
+// carries the static runtime, kills it before it prints anything.
+// UNSUPPORTED: tsan-runtime
+
 // Compile Inputs/mock_renderd_access.c to a shared library and then use
 // LD_PRELOAD to mock the stat and open functions. %{asan_preload} keeps the
 // sanitizer runtime first in the list when the runtime is built with ASan and

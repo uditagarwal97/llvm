@@ -1,3 +1,7 @@
+// -fsyclbin produces several outputs, so the extra input the TSan build adds to
+// %clangxx to link the sanitizer runtime makes the driver reject -o.
+// UNSUPPORTED: tsan-runtime
+
 // RUN: %clangxx --offload-new-driver -fsyclbin=input -o %t.input.syclbin %s
 // RUN: %clangxx --offload-new-driver -fsyclbin=object -o %t.object.syclbin %s
 // RUN: %clangxx --offload-new-driver -fsyclbin=executable -o %t.executable.syclbin %s

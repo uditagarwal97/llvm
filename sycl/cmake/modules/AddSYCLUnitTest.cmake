@@ -47,6 +47,11 @@ function(add_sycl_unittest_internal test_dirname link_variant is_preview)
                                PRIVATE __SYCL_BUILD_SYCL_DLL)
 
     get_target_property(SYCL_LINK_LIBS ${sycl_so_target} LINK_LIBRARIES)
+    # The list also carries the library's own link flags. Drop the version
+    # script: on an executable it only hides symbols, and with
+    # -DLLVM_USE_SANITIZER it makes the sanitizer runtime's interface symbols
+    # local, so the link fails once an instrumented DSO references them.
+    list(FILTER SYCL_LINK_LIBS EXCLUDE REGEX "--version-script")
   endif()
 
   if (SYCL_ENABLE_COVERAGE)
