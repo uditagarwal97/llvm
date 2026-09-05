@@ -82,11 +82,23 @@ void event_impl::waitInternal(bool *Success) {
     cv.wait(lock, [this] { return MState == HES_Complete; });
   }
 
-  // Wait for connected events(e.g. streams prints)
-  for (const EventImplPtr &Event : MPostCompleteEvents)
+  // Wait for connected events(e.g. streams prints).
+  // Snapshot both storages under MMutex: attachEventToComplete{,Weak} can
+  // push_back concurrently (sycl::stream attaches its flush events), and a
+  // reallocating push_back would invalidate an in-progress iteration. The waits
+  // themselves must not be done under MMutex - Command::~Command() takes it via
+  // cleanDepEventsThroughOneLevel(), so the thread completing the event we wait
+  // for could end up blocked on us.
+  std::vector<EventImplPtr> PostCompleteEvents;
+  std::vector<std::weak_ptr<event_impl>> WeakPostCompleteEvents;
+  {
+    std::lock_guard<std::mutex> Lock(MMutex);
+    PostCompleteEvents = MPostCompleteEvents;
+    WeakPostCompleteEvents = MWeakPostCompleteEvents;
+  }
+  for (const EventImplPtr &Event : PostCompleteEvents)
     Event->wait();
-  for (const std::weak_ptr<event_impl> &WeakEventPtr :
-       MWeakPostCompleteEvents) {
+  for (const std::weak_ptr<event_impl> &WeakEventPtr : WeakPostCompleteEvents) {
     if (EventImplPtr Event = WeakEventPtr.lock())
       Event->wait();
   }
@@ -451,10 +463,12 @@ event_impl::get_profiling_info<info::event_profiling::command_submit>() {
     uint64_t StartTime =
         get_event_profiling_info<info::event_profiling::command_start>(
             Handle, this->getAdapter());
-    if (StartTime < MSubmitTime)
-      MSubmitTime = StartTime;
+    // Not an atomic read-modify-write, but that is harmless here: concurrent
+    // queries can only ever store one of the candidate timestamps.
+    if (StartTime < MSubmitTime.load(std::memory_order_relaxed))
+      MSubmitTime.store(StartTime, std::memory_order_relaxed);
   }
-  return MSubmitTime;
+  return MSubmitTime.load(std::memory_order_relaxed);
 }
 
 template <>
@@ -470,7 +484,7 @@ event_impl::get_profiling_info<info::event_profiling::command_start>() {
     // If command is nop (for example, USM operations for 0 bytes) return
     // recorded submission time. If event is created using default constructor,
     // 0 will be returned.
-    return MSubmitTime;
+    return MSubmitTime.load(std::memory_order_relaxed);
   }
   if (!MHostProfilingInfo)
     throw sycl::exception(
@@ -492,7 +506,7 @@ uint64_t event_impl::get_profiling_info<info::event_profiling::command_end>() {
     // If command is nop (for example, USM operations for 0 bytes) return
     // recorded submission time. If event is created using default constructor,
     // 0 will be returned.
-    return MSubmitTime;
+    return MSubmitTime.load(std::memory_order_relaxed);
   }
   if (!MHostProfilingInfo)
     throw sycl::exception(
@@ -631,11 +645,13 @@ void event_impl::setSubmissionTime() {
   if (std::shared_ptr<queue_impl> Queue =
           isHost() ? MSubmittedQueue.lock() : MQueue.lock()) {
     device_impl &Device = Queue->getDeviceImpl();
-    MSubmitTime = getTimestamp(&Device);
+    MSubmitTime.store(getTimestamp(&Device), std::memory_order_relaxed);
   }
 }
 
-uint64_t event_impl::getSubmissionTime() { return MSubmitTime; }
+uint64_t event_impl::getSubmissionTime() {
+  return MSubmitTime.load(std::memory_order_relaxed);
+}
 
 bool event_impl::isCompleted() {
   return get_info<info::event::command_execution_status>() ==
