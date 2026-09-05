@@ -132,19 +132,17 @@ template <> class SYCLConfig<SYCL_UR_TRACE> {
 
 public:
   static int get() {
-    static bool Initialized = false;
+    // Configuration parameters are processed only once, like reading a string
+    // from environment and converting it into a typed object. Let the language
+    // do the synchronisation: a separate `Initialized` flag was read and
+    // written with none, so a second thread could see it set before the store
+    // to the level was visible and silently get no tracing at all.
     // We don't use TraceLevel enum here because user can provide any bitmask
     // which can correspond to several enum values.
-    static int Level = 0; // No tracing by default
-
-    // Configuration parameters are processed only once, like reading a string
-    // from environment and converting it into a typed object.
-    if (Initialized)
-      return Level;
-
-    const char *ValStr = BaseT::getRawValue();
-    Level = (ValStr ? std::atoi(ValStr) : 0);
-    Initialized = true;
+    static const int Level = []() {
+      const char *ValStr = BaseT::getRawValue();
+      return ValStr ? std::atoi(ValStr) : 0; // No tracing by default
+    }();
     return Level;
   }
 };
@@ -225,6 +223,58 @@ template <> class SYCLConfig<SYCL_PARALLEL_FOR_RANGE_ROUNDING_PARAMS> {
   using BaseT = SYCLConfigBase<SYCL_PARALLEL_FOR_RANGE_ROUNDING_PARAMS>;
 
 private:
+  struct FactorsT {
+    bool Valid = false;
+    size_t MinFactor = 0;
+    size_t GoodFactor = 0;
+    size_t MinRange = 0;
+  };
+
+  // Parse optional parameters of this form (all values required):
+  // MinRound:PreferredRound:MinRange
+  // Warns on invalid input; the caller then keeps its default factors.
+  static FactorsT parseFactors(const char *RoundParams) {
+    FactorsT Factors;
+    auto GuardedStoi = [](size_t &Val, const std::string &Str) {
+      try {
+        int ParsedResult = std::stoi(Str);
+        if (ParsedResult < 0)
+          return false;
+        Val = ParsedResult;
+        return true;
+        // Ignore parsing exceptions, but throw on unexpected exceptions:
+      } catch (const std::invalid_argument &) {
+      } catch (const std::out_of_range &) {
+      }
+      return false;
+    };
+
+    std::string Params(RoundParams);
+    size_t Pos = Params.find(':');
+    if (Pos != std::string::npos &&
+        GuardedStoi(Factors.MinFactor, Params.substr(0, Pos)) &&
+        Factors.MinFactor > 0) {
+      Params.erase(0, Pos + 1);
+      Pos = Params.find(':');
+      if (Pos != std::string::npos &&
+          GuardedStoi(Factors.GoodFactor, Params.substr(0, Pos)) &&
+          Factors.GoodFactor > 0) {
+        Params.erase(0, Pos + 1);
+        // Factors are valid only if all parsed successfully:
+        Factors.Valid = GuardedStoi(Factors.MinRange, Params);
+        // Note that MinRange = 0 is considered valid.
+      }
+    }
+    if (!Factors.Valid)
+      std::cerr << "WARNING: Invalid value passed for "
+                << "SYCL_PARALLEL_FOR_RANGE_ROUNDING_PARAMS (Expected format "
+                << "MinRound:PreferredRound:MinRange, where MinRound, "
+                   "PreferredRound"
+                << " > 0, MinRange >= 0). Provided parameters will be ignored."
+                << std::endl;
+    return Factors;
+  }
+
 public:
   static void GetSettings(size_t &MinFactor, size_t &GoodFactor,
                           size_t &MinRange, bool ForceUpdate = false) {
@@ -232,59 +282,28 @@ public:
     if (RoundParams == nullptr)
       return;
 
-    static bool ProcessedFactors = false;
-    static bool FactorsAreValid = false;
-    static size_t MF;
-    static size_t GF;
-    static size_t MR;
-    if (!ProcessedFactors || ForceUpdate) {
-      auto GuardedStoi = [](size_t &val, const std::string &str) {
-        try {
-          int ParsedResult = std::stoi(str);
-          if (ParsedResult < 0)
-            return false;
-          val = ParsedResult;
-          return true;
-          // Ignore parsing exceptions, but throw on unexpected exceptions:
-        } catch (const std::invalid_argument &) {
-        } catch (const std::out_of_range &) {
-        }
-        return false;
-      };
+    // Configuration parameters are processed only once. Let the language do
+    // the synchronisation: the separate `ProcessedFactors`/`FactorsAreValid`
+    // flags were read and written with none, so a second thread could see the
+    // "valid" flag set before the stores to the factors were visible and use a
+    // zero factor. Parsing into a fresh struct also drops the old behaviour
+    // where a failed re-parse left stale/partially updated factors behind.
+    bool JustInitialized = false;
+    static FactorsT Factors = [&]() {
+      JustInitialized = true;
+      return parseFactors(RoundParams);
+    }();
+    // ForceUpdate re-reads the environment; it is only used by unit tests, and
+    // is deliberately not synchronised. Skip it if this call did the initial
+    // parse, so the warning above is printed once per parse, not twice.
+    if (ForceUpdate && !JustInitialized)
+      Factors = parseFactors(RoundParams);
 
-      // Parse optional parameters of this form (all values required):
-      // MinRound:PreferredRound:MinRange
-      std::string Params(RoundParams);
-      size_t Pos = Params.find(':');
-      if (Pos != std::string::npos && GuardedStoi(MF, Params.substr(0, Pos)) &&
-          MF > 0) {
-        Params.erase(0, Pos + 1);
-        Pos = Params.find(':');
-        if (Pos != std::string::npos &&
-            GuardedStoi(GF, Params.substr(0, Pos)) && GF > 0) {
-          Params.erase(0, Pos + 1);
-          // Factors are valid only if all parsed successfully:
-          FactorsAreValid = GuardedStoi(MR, Params);
-          // Note that MinRange = 0 is considered valid.
-        }
-      }
-      if (FactorsAreValid) {
-        ProcessedFactors = true;
-      } else {
-        std::cerr
-            << "WARNING: Invalid value passed for "
-            << "SYCL_PARALLEL_FOR_RANGE_ROUNDING_PARAMS (Expected format "
-            << "MinRound:PreferredRound:MinRange, where MinRound, "
-               "PreferredRound"
-            << " > 0, MinRange >= 0). Provided parameters will be ignored."
-            << std::endl;
-      }
-    }
-    if (FactorsAreValid) {
-      MinFactor = MF;
-      GoodFactor = GF;
-      MinRange = MR;
-    }
+    if (!Factors.Valid)
+      return;
+    MinFactor = Factors.MinFactor;
+    GoodFactor = Factors.GoodFactor;
+    MinRange = Factors.MinRange;
   }
 };
 
