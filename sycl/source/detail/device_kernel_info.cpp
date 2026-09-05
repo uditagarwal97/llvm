@@ -47,9 +47,39 @@ inline constexpr bool operator==(const CompileTimeKernelInfoTy &LHS,
 
 void DeviceKernelInfo::setCompileTimeInfoIfNeeded(
     const CompileTimeKernelInfoTy &Info) {
-  if (!isCompileTimeInfoSet())
-    CompileTimeKernelInfoTy::operator=(Info);
+  // Called under ProgramManager::m_DeviceKernelInfoMapMutex, which protects the
+  // map, not this object: the fields below are read from the kernel submission
+  // path (KernelData, CGExecKernel, ...) through a reference that has already
+  // escaped that mutex. So this lazy publication must stay write-once, and must
+  // not rewrite a field that readers already rely on.
+  if (isCompileTimeInfoSet()) {
+    assert(Info == *this);
+    return;
+  }
+
+  // `Name` is deliberately not copied. It is set when the map entry is created,
+  // before this object is reachable, and points into the device image, while
+  // `Info.Name` points at an equivalent string literal in the caller's
+  // translation unit - equivalent because this entry was found by looking the
+  // map up with `Info.Name` as the key. Readers that only know the kernel name
+  // (ProgramManager::getDeviceKernelInfo(std::string_view),
+  // tryGetDeviceKernelInfo) read `Name` without any lock and may be holding a
+  // detail::string_view into it, so swapping its (pointer, length) pair under
+  // them buys nothing.
+  NumParams = Info.NumParams;
+  IsESIMD = Info.IsESIMD;
+  FileName = Info.FileName;
+  FunctionName = Info.FunctionName;
+  LineNumber = Info.LineNumber;
+  ColumnNumber = Info.ColumnNumber;
+  KernelSize = Info.KernelSize;
+  HasSpecialCaptures = Info.HasSpecialCaptures;
+  // Written last: this is what isCompileTimeInfoSet() tests.
+  ParamDescGetter = Info.ParamDescGetter;
+
   assert(isCompileTimeInfoSet());
+  // Also guards against a field being added to CompileTimeKernelInfoTy (and to
+  // operator== above) but not to the list of fields published here.
   assert(Info == *this);
 }
 

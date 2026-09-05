@@ -127,7 +127,12 @@ public:
   std::string_view getDemangledName() const;
 
 private:
-  bool isCompileTimeInfoSet() const { return KernelSize != 0; }
+  // ParamDescGetter is null exactly when no compile-time info has been
+  // published yet: CompileTimeKernelInfo<Kernel> always provides one, while
+  // entries created from a kernel name alone (program manager registration,
+  // kernel_impl) never do. KernelSize is not a usable marker - it is hardcoded
+  // to 0 when kernels are compiled without integration headers.
+  bool isCompileTimeInfoSet() const { return ParamDescGetter != nullptr; }
 
   // Shared ownership is required: instances of KernelProgramCache keep a
   // reference to this subcache (see FastKernelSubcacheWrapper) and may outlive
