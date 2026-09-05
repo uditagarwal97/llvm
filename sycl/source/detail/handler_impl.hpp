@@ -208,7 +208,10 @@ public:
       ext::oneapi::experimental::event_mode_enum::none;
 
   /// Event computed from async alloc which is passed through for processing.
-  ur_event_handle_t MAsyncAllocEvent = nullptr;
+  /// Owned here, because the command group function can throw after the
+  /// allocation has run, in which case finalize() never hands it over.
+  Managed<ur_event_handle_t> MAsyncAllocEvent;
+
 
   // Allocation ptr to be freed asynchronously.
   void *MFreePtr = nullptr;

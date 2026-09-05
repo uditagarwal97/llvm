@@ -3876,10 +3876,13 @@ ur_result_t ExecCGCommand::enqueueImpQueue() {
     // ptr directly. Any explicit/implicit dependencies are handled at that
     // point, including in order queue deps.
 
-    // Set event carried from async alloc execution.
+    // Take over the event carried from async alloc execution. If it is not
+    // handed to MEvent here it is discarded, and AllocEvent's destructor
+    // returns the reference the adapter handed out in async_malloc().
     CGAsyncAlloc *AsyncAlloc = (CGAsyncAlloc *)MCommandGroup.get();
+    Managed<ur_event_handle_t> AllocEvent = AsyncAlloc->takeEvent();
     if (Event)
-      *Event = AsyncAlloc->getEvent();
+      *Event = AllocEvent.release();
 
     SetEventHandleOrDiscard();
 

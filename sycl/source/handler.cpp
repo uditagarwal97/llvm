@@ -777,8 +777,9 @@ detail::EventImplPtr handler::finalize() {
     break;
   case detail::CGType::AsyncAlloc:
     CommandGroup.reset(new detail::CGAsyncAlloc(
-        impl->MAsyncAllocEvent, std::move(impl->CGData), MCodeLoc));
+        std::move(impl->MAsyncAllocEvent), std::move(impl->CGData), MCodeLoc));
     break;
+
   case detail::CGType::AsyncFree:
     CommandGroup.reset(new detail::CGAsyncFree(
         impl->MFreePtr, std::move(impl->CGData), MCodeLoc));
