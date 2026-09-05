@@ -77,4 +77,50 @@ TEST(PropertySet, EmptyByteArrayValue) {
   ASSERT_EQ(Prop.getType(), PropertyValue::BYTE_ARRAY);
   ASSERT_EQ(Prop.getByteArraySize(), 0u);
 }
+
+TEST(PropertySet, ByteArrayReassignment) {
+  // Assigning over a byte array used to leak the old allocation, and
+  // self-assignment used to clear the value. Aliases are used to keep clang
+  // from diagnosing the self-assignments.
+  PropertyValue A{std::vector<char>{'a', 'b', 'c'}};
+  PropertyValue B{std::vector<char>{'d', 'e'}};
+  PropertyValue &AliasA = A;
+
+  A = B;
+  ASSERT_EQ(A.getByteArraySize(), 2u);
+  ASSERT_EQ(A.asByteArray()[0], 'd');
+
+  A = AliasA;
+  ASSERT_EQ(A.getByteArraySize(), 2u);
+  ASSERT_EQ(A.asByteArray()[1], 'e');
+
+  A = std::move(B);
+  ASSERT_EQ(A.getByteArraySize(), 2u);
+
+  A = std::move(AliasA);
+  ASSERT_EQ(A.getType(), PropertyValue::BYTE_ARRAY);
+  ASSERT_EQ(A.getByteArraySize(), 2u);
+}
+
+TEST(PropertySet, ByteArrayRemove) {
+  // remove() shifts the trailing properties down with move assignment, which
+  // used to leak the removed slot's byte array.
+  auto Content = "[Opt/Param]\n"
+                 "kernel1=2|IAAAAAAAAAQA\n"
+                 "kernel2=2|oAAAAAAAAAw///3/wB\n";
+  auto MemBuf = MemoryBuffer::getMemBuffer(Content);
+  auto PropSetsPtr = PropertySetRegistry::read(MemBuf.get());
+
+  if (!PropSetsPtr)
+    FAIL() << "PropertySetRegistry::read failed\n";
+
+  PropSetsPtr->get()->remove("Opt/Param", "kernel1");
+
+  std::string Serialized;
+  {
+    llvm::raw_string_ostream OS(Serialized);
+    PropSetsPtr->get()->write(OS);
+  }
+  ASSERT_EQ(Serialized, "[Opt/Param]\nkernel2=2|oAAAAAAAAAw///3/wB\n");
+}
 } // namespace
