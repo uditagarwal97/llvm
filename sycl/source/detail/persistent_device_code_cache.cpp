@@ -11,6 +11,7 @@
 #include <detail/persistent_device_code_cache.hpp>
 #include <detail/program_manager/program_manager.hpp>
 
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -965,11 +966,12 @@ PersistentDeviceCodeCache::getDeviceCodeIRPath(const std::string &Key) {
  */
 bool PersistentDeviceCodeCache::isEnabled() {
   bool CacheIsEnabled = SYCLConfig<SYCL_CACHE_PERSISTENT>::get();
-  static bool FirstCheck = true;
-  if (FirstCheck) {
+  // Any thread can be the first one here, so the flag has to be atomic. The
+  // exchange also makes the trace print exactly once instead of once per thread
+  // that happens to read the flag before another one clears it.
+  static std::atomic<bool> FirstCheck = true;
+  if (FirstCheck.exchange(false))
     PersistentDeviceCodeCache::trace(CacheIsEnabled ? "enabled" : "disabled");
-    FirstCheck = false;
-  }
   return CacheIsEnabled;
 }
 
