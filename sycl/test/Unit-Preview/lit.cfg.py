@@ -69,6 +69,16 @@ config.environment["LSAN_OPTIONS"] = "suppressions=" + os.path.join(
 # harmless otherwise.
 config.environment["UBSAN_OPTIONS"] = "halt_on_error=1,print_stacktrace=1"
 
+# Keep going after the first race so one report does not hide the rest, and ask
+# for deeper stack history and both stacks of a lock-order inversion - the
+# runtime's locks are taken several frames below the API entry point, so the
+# default depth is rarely enough to tell what to fix. Only used when the runtime
+# was built with the thread sanitizer; harmless otherwise.
+config.environment["TSAN_OPTIONS"] = (
+    "halt_on_error=0 history_size=7 second_deadlock_stack=1 suppressions="
+    + os.path.join(os.path.dirname(__file__), os.pardir, "tsan_suppressions.txt")
+)
+
 
 def find_shlibpath_var():
     if platform.system() in ["Linux", "FreeBSD", "NetBSD", "SunOS"]:

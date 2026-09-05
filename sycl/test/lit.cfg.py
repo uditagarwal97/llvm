@@ -185,6 +185,46 @@ config.substitutions.append(("%sycl_triple", triple))
 
 additional_flags = config.sycl_clang_extra_flags.split(" ")
 
+# ThreadSanitizer needs the opposite treatment. clang only ever links the TSan
+# runtime statically, so a sanitized libsycl.so keeps its __tsan_* references
+# undefined and an uninstrumented test executable will not even link against it.
+# Link the shared runtime into the test binaries instead, so it is their first
+# DT_NEEDED entry and initializes before anything else.
+#
+# It must NOT be preloaded the way the ASan runtime is: every RUN line runs
+# tools from this build, those are instrumented and carry the static runtime,
+# and a second, shared runtime on top of that kills them - starting with the
+# clang that lit itself probes for its resource dir. For the same reason it must
+# not be passed as a driver *input* file either: that would break the RUN lines
+# producing several outputs (-fsyclbin, -fsycl-link) and would put the runtime
+# inside helper libraries a test builds only in order to preload them.
+if "Thread" in getattr(config, "llvm_use_sanitizer", ""):
+    TsanRuntime = subprocess.check_output(
+        [config.host_cxx.strip(), "-print-file-name=libclang_rt.tsan-x86_64.so"],
+        text=True,
+    ).strip()
+    if os.path.isfile(TsanRuntime):
+        llvm_config.with_environment(
+            "TSAN_OPTIONS",
+            "halt_on_error=0 history_size=7 second_deadlock_stack=1 suppressions="
+            + os.path.join(config.test_source_root, "tsan_suppressions.txt"),
+        )
+        TsanRuntimeDir = os.path.dirname(TsanRuntime)
+        additional_flags += [
+            "-Wl,-L" + TsanRuntimeDir,
+            "-Wl,-l:" + os.path.basename(TsanRuntime),
+            "-Wl,-rpath," + TsanRuntimeDir,
+            # The link flags above are unused on the compile-only RUN lines.
+            "-Wno-unused-command-line-argument",
+        ]
+        # The library reference counts as a driver input, which a handful of
+        # tests cannot accommodate. They mark themselves UNSUPPORTED on this.
+        config.available_features.add("tsan-runtime")
+    else:
+        lit_config.warning(
+            "sanitized build, but no TSan runtime found: {}".format(TsanRuntime)
+        )
+
 if config.cuda == "ON":
     config.available_features.add("cuda")
 

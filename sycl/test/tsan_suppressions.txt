@@ -1,0 +1,12 @@
+# ThreadSanitizer suppressions for running these tests against a runtime built
+# with -DLLVM_USE_SANITIZER=Thread.
+#
+# Everything listed here is a race inside code this project does not build, and
+# only shows up in the tests that enumerate real platforms and so load a vendor
+# driver. Never add a SYCL runtime, Unified Runtime, LLVM or clang frame here -
+# suppressing one of those hides exactly what this build exists to find.
+
+# The Level Zero GPU driver frees a block on the calling thread while one of the
+# threads it spawned from zeInit is still reading it. All frames are inside the
+# driver; matched by module name because it ships without symbols.
+race:libze_intel_gpu.so.1

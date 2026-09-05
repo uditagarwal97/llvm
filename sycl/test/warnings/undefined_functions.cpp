@@ -1,3 +1,7 @@
+// -fsycl-link does not produce an executable, and the extra input the TSan
+// build adds to %clangxx to link the sanitizer runtime confuses the driver.
+// UNSUPPORTED: tsan-runtime
+
 // RUN: %clangxx %s -fsycl -fsycl-link 2>&1 | FileCheck %s --check-prefix=CHECK-WARNING
 // RUN: %clangxx %s -fsycl -fsycl-link -fsycl-allow-device-image-dependencies 2>&1 | FileCheck --allow-empty %s --check-prefix=CHECK-WARNING-DYNAMIC
 // This test is intended to check that we emit a helpful warning message for
