@@ -2688,8 +2688,10 @@ private:
   xpti::StringTable MVendorStringTable;
   /// Manages the tracepoints - framework caching
   xpti::Tracepoints MTracepoints;
-  /// Flag indicates whether tracing should be enabled
-  bool MTraceEnabled;
+  /// Flag indicates whether tracing should be enabled. Atomic because
+  /// xptiForceSetTraceEnabled() can flip it from any thread while producers are
+  /// reading it on theirs, same as MEffectiveStreamDetailLevels below.
+  std::atomic<bool> MTraceEnabled;
   /// Cached effective detail levels per stream (indexed by stream_id)
   /// Lock-free array of atomics for fast reads by producers
   std::array<std::atomic<uint8_t>, STREAM_ID_MAX + 1>
