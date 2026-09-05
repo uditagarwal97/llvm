@@ -327,8 +327,8 @@ void *event_impl::instrumentationProlog(std::string &Name,
   // We can emit the wait associated with the graph if the
   // event does not have a command object or associated with
   // the command object, if it exists
-  if (MCommand) {
-    Command *Cmd = (Command *)MCommand;
+  // One load: a second one can come back null once another thread clears it.
+  if (Command *Cmd = MCommand.load()) {
     WaitEvent = Cmd->MTraceEvent ? static_cast<xpti_td *>(Cmd->MTraceEvent)
                                  : GSYCLGraphEvent;
   } else {
@@ -642,7 +642,7 @@ bool event_impl::isCompleted() {
          info::event_command_status::complete;
 }
 
-void event_impl::setCommand(Command *Cmd) { MCommand = Cmd; }
+void event_impl::setCommand(Command *Cmd) { MCommand.store(Cmd); }
 
 } // namespace detail
 } // namespace _V1

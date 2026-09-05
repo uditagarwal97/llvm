@@ -425,7 +425,13 @@ protected:
   uint64_t MSubmitTime = 0;
   std::shared_ptr<context_impl> MContext;
   std::unique_ptr<HostProfilingInfo> MHostProfilingInfo;
-  Command *MCommand = nullptr;
+  // Written under one of the scheduler's graph locks, but read without any lock
+  // at all by isNOP(), wait() and getCommand(). Atomic so that a host task
+  // completing on a thread pool thread and clearing this does not race those
+  // readers. Anything that dereferences the result still needs the scheduler
+  // lock to keep the command alive, and must load it once - a second load can
+  // come back null.
+  std::atomic<Command *> MCommand = nullptr;
   std::weak_ptr<queue_impl> MQueue;
   bool MIsProfilingEnabled = false;
 
