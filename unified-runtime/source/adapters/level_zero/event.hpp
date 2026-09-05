@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 #pragma once
 
+#include <atomic>
 #include <cassert>
 #include <list>
 #include <map>
@@ -193,7 +194,13 @@ struct ur_event_handle_t_ : ur_object_t {
   // that no other synchromization is needed. Note that the underlying
   // L0 event (if any) is not guranteed to have been signalled, or
   // being visible to the host at all.
-  bool Completed = {false};
+  //
+  // This is a monotonic (false -> true) flag which is deliberately read and
+  // set without holding this event's Mutex in exclusive mode: urEventRelease
+  // reads it with no event lock at all, urEventWait sets it under a *shared*
+  // lock, and CleanupCompletedEvent sets it on dependent events with no lock.
+  // It is therefore atomic rather than lock-protected.
+  std::atomic<bool> Completed = {false};
 
   // Indicates that this event is discarded, i.e. it is not visible outside of
   // plugin.

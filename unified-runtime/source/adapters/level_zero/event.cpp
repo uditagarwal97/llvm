@@ -1727,6 +1727,13 @@ ur_result_t ur_ze_event_list_t::createAndRetainUrZeEventList(
           this->UrEventList[TmpListLength]->RefCount.retain();
         }
 
+        // The lock order in this adapter is "queue mutex before event mutex"
+        // (see e.g. getOrCreateHostVisibleEvent, which takes both at once).
+        // Drop the event lock before re-acquiring CurQueue->Mutex below, as
+        // taking a queue mutex while holding an event mutex is a lock-order
+        // inversion against every other site.
+        Lock.unlock();
+
         if (QueueLock.has_value()) {
           QueueLock.reset();
           CurQueue->Mutex.lock();
