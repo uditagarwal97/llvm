@@ -65,6 +65,12 @@ config.environment["LSAN_OPTIONS"] = "suppressions=" + os.path.join(
     os.path.dirname(__file__), os.pardir, "lsan_suppressions.txt"
 )
 
+# UBSan prints a diagnostic and keeps going by default, which would let undefined
+# behaviour in the runtime pass unnoticed. Make it abort so the test fails. Only
+# used when the runtime was built with the undefined behaviour sanitizer;
+# harmless otherwise.
+config.environment["UBSAN_OPTIONS"] = "halt_on_error=1,print_stacktrace=1"
+
 
 def find_shlibpath_var():
     if platform.system() in ["Linux", "FreeBSD", "NetBSD", "SunOS"]:
