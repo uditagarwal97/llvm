@@ -507,10 +507,12 @@ TEST(ConfigTests, CheckParallelForRangeRoundingParams) {
   TestBadInput("-1:2:3", BadParamsErr);
   TestBadInput("1:2:31415926535897932384626433832795028841971", BadParamsErr);
 
-  // Test valid values.
+  // Test valid values. ForceUpdate is required: the invalid values above are
+  // now parsed once and their (invalid) result cached, instead of being
+  // re-parsed on every call.
   SetRoundingParams("8:16:32");
-  AssertRoundingParams(8, 16, 32,
-                       "Failed to read rounding parameters properly");
+  AssertRoundingParams(8, 16, 32, "Failed to read rounding parameters properly",
+                       /*ForceUpdate =*/true);
   SetRoundingParams("8:16:0");
   AssertRoundingParams(8, 16, 0, "0 is a valid value for MinRange",
                        /*ForceUpdate =*/true);
