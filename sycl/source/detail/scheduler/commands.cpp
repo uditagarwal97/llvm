@@ -3878,8 +3878,16 @@ ur_result_t ExecCGCommand::enqueueImpQueue() {
 
     // Set event carried from async alloc execution.
     CGAsyncAlloc *AsyncAlloc = (CGAsyncAlloc *)MCommandGroup.get();
-    if (Event)
+    if (Event) {
       *Event = AsyncAlloc->getEvent();
+    } else if (ur_event_handle_t AllocEvent = AsyncAlloc->getEvent()) {
+      // The event is discarded, so the reference the adapter handed out in
+      // async_malloc() is not transferred to MEvent and this command is its
+      // last owner.
+      assert(MQueue &&
+             "Async alloc submissions should have an associated queue");
+      MQueue->getAdapter().call<UrApiKind::urEventRelease>(AllocEvent);
+    }
 
     SetEventHandleOrDiscard();
 
