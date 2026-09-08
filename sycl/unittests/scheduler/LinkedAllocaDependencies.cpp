@@ -108,4 +108,9 @@ TEST_F(SchedulerTest, LinkedAllocaDependencies) {
                              return Dep.MDepCommand == &DepCmd;
                            }) != AllocaCmd2->MDeps.end())
       << "No deps for leaves (deps of existing alloca) appeared in new alloca";
+
+  // The new alloca command is owned by the graph. The mocked record can't be
+  // cleaned up through the scheduler since AllocaCmd1 is not heap allocated,
+  // so delete the command directly.
+  delete AllocaCmd2;
 }

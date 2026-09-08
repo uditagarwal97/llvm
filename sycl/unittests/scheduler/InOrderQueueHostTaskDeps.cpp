@@ -48,6 +48,8 @@ TEST_F(SchedulerTest, InOrderQueueHostTaskDeps) {
 
   size_t expectedCount = 1u;
   EXPECT_EQ(GEventsWaitCounter, expectedCount);
+
+  sycl::free(buf, InOrderQueue);
 }
 
 enum class CommandType { KERNEL = 1, MEMSET = 2, HOST_TASK = 3 };
@@ -125,6 +127,8 @@ TEST_F(SchedulerTest, InOrderQueueCrossDeps) {
   EXPECT_EQ(std::get<0>(ExecutedCommands[2]) /*CommandType*/,
             CommandType::KERNEL);
   EXPECT_EQ(std::get<1>(ExecutedCommands[2]) /*EventsCount*/, 0u);
+
+  sycl::free(buf, InOrderQueue);
 }
 
 TEST_F(SchedulerTest, InOrderQueueCrossDepsShortcutFuncs) {
@@ -176,6 +180,8 @@ TEST_F(SchedulerTest, InOrderQueueCrossDepsShortcutFuncs) {
   EXPECT_EQ(std::get<0>(ExecutedCommands[2]) /*CommandType*/,
             CommandType::KERNEL);
   EXPECT_EQ(std::get<1>(ExecutedCommands[2]) /*EventsCount*/, 0u);
+
+  sycl::free(buf, InOrderQueue);
 }
 
 TEST_F(SchedulerTest, InOrderQueueCrossDepsShortcutFuncsParallelFor) {

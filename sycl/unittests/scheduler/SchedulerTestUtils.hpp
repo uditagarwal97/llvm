@@ -193,6 +193,23 @@ public:
     return MGraphBuilder.addEmptyCmd(Cmd, Reqs, Reason, ToEnqueue);
   }
 
+  // Takes over the commands the runtime deferred for cleanup. Tests that
+  // disable execution graph cleanup have to delete such commands themselves,
+  // and leaving them in the deferred list would make
+  // Scheduler::releaseResources delete them a second time.
+  static std::vector<sycl::detail::Command *> takeDeferredCleanupCommands() {
+    sycl::detail::Scheduler &Sched = sycl::detail::Scheduler::getInstance();
+    std::vector<sycl::detail::Command *> Cmds;
+    std::lock_guard<std::mutex> Lock{Sched.MDeferredCleanupMutex};
+    std::swap(Cmds, Sched.MDeferredCleanupCommands);
+    return Cmds;
+  }
+
+  void cleanupCommand(sycl::detail::Command *Cmd,
+                      bool AllowUnsubmitted = false) {
+    MGraphBuilder.cleanupCommand(Cmd, AllowUnsubmitted);
+  }
+
   sycl::detail::Command *addCG(std::unique_ptr<sycl::detail::CG> CommandGroup,
                                sycl::detail::queue_impl *Queue,
                                std::vector<sycl::detail::Command *> &ToEnqueue,
