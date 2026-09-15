@@ -4253,9 +4253,16 @@ static bool handleFormatAttrCommon(Sema &S, Decl *D, const ParsedAttr &AL,
   // make sure the format string is really a string
   QualType Ty = getFunctionOrMethodParamType(D, ArgIdx);
 
+  // Inside a template the pointee may still be dependent (e.g. the 'const
+  // FormatT *' of sycl::ext::oneapi::experimental::printf). Accept it; the
+  // format string itself is checked at the call site.
+  const auto *PT = Ty->getAs<PointerType>();
+  bool IsCharOrDependentPointee =
+      PT && (PT->getPointeeType()->isCharType() ||
+             PT->getPointeeType()->isDependentType());
+
   if (!S.ObjC().isNSStringType(Ty, true) && !S.ObjC().isCFStringType(Ty) &&
-      (!Ty->isPointerType() ||
-       !Ty->castAs<PointerType>()->getPointeeType()->isCharType())) {
+      !IsCharOrDependentPointee) {
     S.Diag(AL.getLoc(), diag::err_format_attribute_not)
         << IdxExpr->getSourceRange()
         << getFunctionOrMethodParamRange(D, ArgIdx);
@@ -5283,9 +5290,10 @@ void Sema::AddModeAttr(Decl *D, const AttributeCommonInfo &CI,
     NewElemTy = Context.getRealTypeForBitwidth(DestWidth, ExplicitType);
 
   if (NewElemTy.isNull()) {
+    // FIXME: We need to make sure that the target handles correctly the
+    // requested mode.
     // Only emit diagnostic on host for 128-bit mode attribute
-    if (!(DestWidth == 128 &&
-          (getLangOpts().CUDAIsDevice || getLangOpts().SYCLIsDevice)))
+    if (!(DestWidth == 128 && getLangOpts().isTargetDevice()))
       Diag(AttrLoc, diag::err_machine_mode) << 1 /*Unsupported*/ << Name;
     return;
   }
@@ -5991,7 +5999,7 @@ bool Sema::CheckCallingConvAttr(const ParsedAttr &Attrs, CallingConv &CC,
     break;
   }
   case ParsedAttr::AT_NativeCPULibclcCall:
-    CC = CC_SpirFunction;
+    CC = CC_NativeCPUFunction;
     break;
   default: llvm_unreachable("unexpected attribute kind");
   }
@@ -6171,12 +6179,23 @@ Sema::CreateLaunchBoundsAttr(const AttributeCommonInfo &CI, Expr *MaxThreads,
     // We might want to ignore the nvptx arch check, e.g., when processing the
     // launch bounds attribute within ompx_attribute to support other archs.
     if (!IgnoreArch) {
-      // '.maxclusterrank' ptx directive requires .target sm_90 or higher.
-      OffloadArch SM = SYCL().getOffloadArch(Context.getTargetInfo());
-      if (SM.isUnknown() || llvm::NVPTX::getSmVersion(SM.nvptxKind()) < 900) {
-        Diag(MaxBlocks->getBeginLoc(), diag::warn_cuda_maxclusterrank_sm_90)
-            << OffloadArchToString(SM) << CI << MaxBlocks->getSourceRange();
-        // Ignore it by setting MaxBlocks to null;
+      const TargetInfo &DeviceTI =
+          (!Context.getLangOpts().CUDAIsDevice && Context.getAuxTargetInfo())
+              ? *Context.getAuxTargetInfo()
+              : Context.getTargetInfo();
+      if (DeviceTI.getTriple().isNVPTX()) {
+        // '.maxclusterrank' ptx directive requires .target sm_90 or higher.
+        OffloadArch SM = SYCL().getOffloadArch(DeviceTI);
+        if (SM.isUnknown() || llvm::NVPTX::getSmVersion(SM.nvptxKind()) < 900) {
+          Diag(MaxBlocks->getBeginLoc(), diag::warn_cuda_maxclusterrank_sm_90)
+              << OffloadArchToString(SM) << CI << MaxBlocks->getSourceRange();
+          // Ignore it by setting MaxBlocks to null;
+          MaxBlocks = nullptr;
+        }
+      } else {
+        // maxclusterrank is only handled for NVPTX; ignore it elsewhere.
+        // TODO: Interpret this for AMDGPU with the "clusters" subtarget
+        // feature.
         MaxBlocks = nullptr;
       }
     }
