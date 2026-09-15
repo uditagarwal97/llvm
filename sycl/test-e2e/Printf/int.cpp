@@ -20,6 +20,12 @@
 
 #include "helper.hpp"
 
+// The "cuda" format strings below deliberately use a specifier that does not
+// match the argument type by C rules (e.g. %lld for a size_t), because CUDA
+// promotes every integer argument. experimental::printf is format-checked, so
+// silence the resulting -Wformat diagnostics for this test.
+#pragma clang diagnostic ignored "-Wformat"
+
 using namespace sycl;
 
 void do_d_i_test(
