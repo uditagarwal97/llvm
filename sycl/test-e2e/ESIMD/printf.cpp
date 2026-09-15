@@ -95,7 +95,7 @@ int main() {
         .parallel_for(range<1>(WORK_SIZE),
                       [=](id<1> i) SYCL_ESIMD_KERNEL {
                         static const CONSTANT char STR_LU_D[] =
-                            "Thread-id: %d, Value: %d\n";
+                            "Thread-id: %lu, Value: %d\n";
                         ext::intel::esimd::simd<int, SIMD_SIZE> Vec(
                             Mem + i * SIMD_SIZE);
                         // cast to uint64_t to be sure that we pass 64-bit

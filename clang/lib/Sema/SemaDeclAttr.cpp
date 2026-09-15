@@ -4253,9 +4253,16 @@ static bool handleFormatAttrCommon(Sema &S, Decl *D, const ParsedAttr &AL,
   // make sure the format string is really a string
   QualType Ty = getFunctionOrMethodParamType(D, ArgIdx);
 
+  // Inside a template the pointee may still be dependent (e.g. the 'const
+  // FormatT *' of sycl::ext::oneapi::experimental::printf). Accept it; the
+  // format string itself is checked at the call site.
+  const auto *PT = Ty->getAs<PointerType>();
+  bool IsCharOrDependentPointee =
+      PT && (PT->getPointeeType()->isCharType() ||
+             PT->getPointeeType()->isDependentType());
+
   if (!S.ObjC().isNSStringType(Ty, true) && !S.ObjC().isCFStringType(Ty) &&
-      (!Ty->isPointerType() ||
-       !Ty->castAs<PointerType>()->getPointeeType()->isCharType())) {
+      !IsCharOrDependentPointee) {
     S.Diag(AL.getLoc(), diag::err_format_attribute_not)
         << IdxExpr->getSourceRange()
         << getFunctionOrMethodParamRange(D, ArgIdx);

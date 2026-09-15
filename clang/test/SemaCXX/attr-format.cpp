@@ -105,3 +105,28 @@ void do_format() {
   f.format("%s %s %u %d %i %p\n", "hello", s, 10u, x, y, do_format);
   f.format("bad format %s"); // expected-warning{{more '%' conversions than data arguments}}
 }
+
+// The format string parameter may still be dependent inside a template (e.g.
+// the 'const FormatT *' of sycl::ext::oneapi::experimental::printf); the format
+// string is then checked at the call site.
+namespace dependent_format_string {
+template <typename FormatT, typename... Args>
+int tprintf(const FormatT *fmt, Args... args) // expected-warning{{GCC requires a function with the 'format' attribute to be variadic}}
+    __attribute__((format(printf, 1, 2)));
+
+template <typename FormatT>
+int tprintf_valist(const FormatT *fmt, va_list)
+    __attribute__((format(printf, 1, 0)));
+
+template <typename T>
+int not_a_string(T fmt, ...) __attribute__((format(printf, 1, 2))); // expected-error{{format argument not a string type}}
+
+void test(const char *nonliteral, va_list ap) {
+  tprintf("%d", 1);
+  tprintf("%d", 1.0);     // expected-warning{{format specifies type 'int' but the argument has type 'double'}}
+  tprintf("%@", 1);       // expected-warning{{invalid conversion specifier '@'}}
+  tprintf("%ls", "wide"); // expected-warning{{format specifies type 'wchar_t *' but the argument has type 'const char *'}}
+  tprintf(nonliteral, 1); // expected-warning{{format string is not a string literal}}
+  tprintf_valist("%@", ap); // expected-warning{{invalid conversion specifier '@'}}
+}
+} // namespace dependent_format_string
