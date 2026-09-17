@@ -68,6 +68,39 @@ if config.extra_environment:
             lit_config.note("\tUnset " + var)
             llvm_config.with_environment(var, "")
 
+# Tests are not compiled with -fsanitize=address (that would also instrument
+# device code and change what the check_device_code tests match), so a host
+# binary loading a sanitized libsycl needs the ASan runtime loaded first.
+# Preload it, and ignore the leaks of the system tools a RUN line invokes, which
+# get leak-checked as a side effect of being started by a preloaded process.
+# A test that sets LD_PRELOAD itself must prepend %{asan_preload} to keep the
+# runtime first; it expands to nothing in a regular build.
+AsanPreload = ""
+if "Address" in getattr(config, "llvm_use_sanitizer", ""):
+    AsanRuntime = subprocess.check_output(
+        [config.host_cxx, "-print-file-name=libclang_rt.asan-x86_64.so"],
+        text=True,
+    ).strip()
+    if os.path.isfile(AsanRuntime):
+        AsanPreload = AsanRuntime + ":"
+        llvm_config.with_environment("LD_PRELOAD", AsanRuntime)
+        llvm_config.with_environment(
+            "LSAN_OPTIONS",
+            "suppressions="
+            + os.path.join(config.test_source_root, "lsan_suppressions.txt"),
+        )
+    else:
+        lit_config.warning(
+            "sanitized build, but no ASan runtime found: {}".format(AsanRuntime)
+        )
+config.substitutions.append(("%{asan_preload}", AsanPreload))
+
+# UBSan prints a diagnostic and keeps going by default, so undefined behaviour in
+# the runtime would leave the test passing with the report buried in output lit
+# discards. Make it abort instead, so a finding fails the test that hit it.
+if "Undefined" in getattr(config, "llvm_use_sanitizer", ""):
+    llvm_config.with_environment("UBSAN_OPTIONS", "halt_on_error=1,print_stacktrace=1")
+
 # If major release preview library is enabled we can enable the feature.
 if config.sycl_preview_lib_enabled == "ON":
     config.available_features.add("preview-breaking-changes-supported")

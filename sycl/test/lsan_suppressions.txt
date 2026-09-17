@@ -1,0 +1,30 @@
+# LeakSanitizer suppressions for running these tests against a runtime built
+# with -DLLVM_USE_SANITIZER=Address.
+#
+# A sanitized RUN line leak-checks every process it starts, including the system
+# tools it invokes, so everything listed here is a leak in code this project
+# does not build. Never add a SYCL runtime, LLVM or clang frame here.
+
+# GNU ld and gold allocate from an arena that is never freed.
+leak:x86_64-linux-gnu-ld.bfd
+leak:libbfd
+leak:ld.gold
+
+# System toolchain used by a few tests that compile with the host compiler.
+# Frames in these are unsymbolized, so the module name is what matches.
+leak:cc1plus
+leak:x86_64-linux-gnu-g++
+leak:x86_64-linux-gnu-gcc
+leak:/usr/bin/g++
+leak:/usr/bin/gcc
+
+# Coreutils used from RUN lines. They close stderr in an atexit handler, so the
+# report itself is invisible and only shows up as a non-zero exit code.
+leak:/usr/bin/sort
+leak:/usr/bin/sed
+leak:/usr/bin/grep
+
+# The Level Zero loader's global context singleton: the vendor libze_loader has
+# no API to tear it down.
+leak:libze_loader
+leak:loader::context_t::init
