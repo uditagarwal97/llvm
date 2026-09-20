@@ -74,8 +74,18 @@ void stream_impl::generateFlushCommand(handler &cgh) {
   // accessor to the flush buffer.
   host_accessor<char, 1, access::mode::read_write> FlushBuffHostAcc(FlushBuf_,
                                                                     cgh);
+  // Include the terminating zero the constructor allocated past the
+  // user-visible size: the printf below reads it anyway, and it keeps this
+  // requirement non-empty when BufferSize_ is 0. A zero-range requirement is
+  // dropped by handler::associateWithHandlerCommon(), which would leave the
+  // kernel command a permanent leaf of this buffer's MemObjRecord. Nothing
+  // would ever displace it, and since the kernel captures the stream (and so
+  // holds a reference to this stream_impl, which owns the buffer whose record
+  // holds the command) the cycle keeps the command, both stream buffers, the
+  // queue and the context alive until the runtime is torn down, then leaks
+  // them.
   host_accessor<char, 1, access::mode::read_write> BufHostAcc(
-      Buf_, cgh, range<1>(BufferSize_), id<1>(OffsetSize));
+      Buf_, cgh, range<1>(BufferSize_ + 1), id<1>(OffsetSize));
 
   cgh.host_task([=] {
     if (!BufHostAcc.empty()) {
