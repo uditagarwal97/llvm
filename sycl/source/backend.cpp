@@ -105,7 +105,17 @@ __SYCL_EXPORT context make_context(ur_native_handle_t NativeHandle,
   ur_context_handle_t UrContext = nullptr;
   ur_context_native_properties_t Properties{};
   Properties.stype = UR_STRUCTURE_TYPE_CONTEXT_NATIVE_PROPERTIES;
-  Properties.isNativeHandleOwned = false;
+  // Unlike every other make_* entry point, this used to hardcode false, so a
+  // native context handed over with ownership::transfer was never destroyed by
+  // the adapter that took it - e.g. the Level Zero adapter skips
+  // zeContextDestroy unless OwnNativeHandle is set, leaking the ze_context and
+  // everything the driver allocated for it.
+  Properties.isNativeHandleOwned = !KeepOwnership;
+  // Taking ownership means the adapter will clReleaseContext on destruction, so
+  // balance it with a retain, the same way SYCLMemObjT does when it takes over
+  // a native memory object.
+  if (!KeepOwnership && Backend == backend::opencl)
+    retainOpenCLContext(NativeHandle);
   std::vector<ur_device_handle_t> DeviceHandles;
   for (const auto &Dev : DeviceList) {
     DeviceHandles.push_back(detail::getSyclObjImpl(Dev)->getHandleRef());

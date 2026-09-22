@@ -98,11 +98,13 @@ context_impl::context_impl(ur_context_handle_t UrContext,
   // getAdapter() will be the same as the Adapter passed. This should be taken
   // care of when creating device object.
   //
-  // TODO: Move this backend-specific retain of the context to SYCL-2020 style
-  //       make_context<backend::opencl> interop, when that is created.
-  if (getBackend() == sycl::backend::opencl) {
-    getAdapter().call<UrApiKind::urContextRetain>(MContext);
-  }
+  // UrContext arrives holding the one reference this context_impl owns, taken
+  // by the urContextCreateWithNativeHandle call in every caller, and
+  // ~context_impl releases exactly that one. The OpenCL-only retain that used
+  // to live here bumped the adapter-side wrapper's reference count, never the
+  // cl_context, so it leaked the wrapper and kept the adapter from ever running
+  // clReleaseContext. make_context() retains the cl_context itself when it
+  // takes ownership of it.
 }
 
 OpenCLContextT context_impl::get() const {
