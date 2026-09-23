@@ -181,12 +181,18 @@ bool clang::analyze_format_string::ParseArgPosition(FormatStringHandler &H,
   return false;
 }
 
+// SYCL device code maps printf onto OpenCL C's, so the OpenCL C printf
+// extensions ('v' vector modifier, 'hl' length modifier) are valid there too.
+static bool hasOpenCLVectorSpecifiers(const LangOptions &LO) {
+  return LO.OpenCL || LO.SYCLIsDevice;
+}
+
 bool clang::analyze_format_string::ParseVectorModifier(FormatStringHandler &H,
                                                        FormatSpecifier &FS,
                                                        const char *&I,
                                                        const char *E,
                                                        const LangOptions &LO) {
-  if (!LO.OpenCL)
+  if (!hasOpenCLVectorSpecifiers(LO))
     return false;
 
   const char *Start = I;
@@ -225,7 +231,7 @@ bool clang::analyze_format_string::ParseLengthModifier(FormatSpecifier &FS,
     if (I != E && *I == 'h') {
       ++I;
       lmKind = LengthModifier::AsChar;
-    } else if (I != E && *I == 'l' && LO.OpenCL) {
+    } else if (I != E && *I == 'l' && hasOpenCLVectorSpecifiers(LO)) {
       ++I;
       lmKind = LengthModifier::AsShortLong;
     } else {
@@ -1164,7 +1170,7 @@ bool FormatSpecifier::hasValidLengthModifier(const TargetInfo &Target,
   // Handle most integer flags
   case LengthModifier::AsShort:
     // Length modifier only applies to FP vectors.
-    if (LO.OpenCL && CS.isDoubleArg())
+    if (hasOpenCLVectorSpecifiers(LO) && CS.isDoubleArg())
       return !VectorNumElts.isInvalid();
 
     if (CS.isFixedPointArg())
@@ -1211,7 +1217,7 @@ bool FormatSpecifier::hasValidLengthModifier(const TargetInfo &Target,
     }
 
   case LengthModifier::AsShortLong:
-    return LO.OpenCL && !VectorNumElts.isInvalid();
+    return hasOpenCLVectorSpecifiers(LO) && !VectorNumElts.isInvalid();
 
   // Handle 'l' flag
   case LengthModifier::AsLong: // or AsWideChar

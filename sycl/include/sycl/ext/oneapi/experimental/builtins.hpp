@@ -75,8 +75,22 @@ namespace ext::oneapi::experimental {
 // using __SYCL_DEVICE_ONLY__ preprocessor macro or avoided in favor of more
 // portable solutions if needed
 //
+// Opt into clang's printf format string checking, so that an invalid specifier
+// (e.g. "%ls", which makes the device runtime abort) is diagnosed at compile
+// time with -Wformat / -Wformat-invalid-specifier, just like for C's printf.
+// GCC rejects the attribute on a function that is not C-variadic, and clang
+// warns about that under -Wgcc-compat, so it is clang-only and the warning is
+// silenced here.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgcc-compat"
+#define __SYCL_PRINTF_FORMAT_ATTR __attribute__((format(printf, 1, 2)))
+#else
+#define __SYCL_PRINTF_FORMAT_ATTR
+#endif
+
 template <typename FormatT, typename... Args>
-int printf(const FormatT *__format, Args... args) {
+__SYCL_PRINTF_FORMAT_ATTR int printf(const FormatT *__format, Args... args) {
 #if defined(__SYCL_DEVICE_ONLY__)
 #if (defined(__SPIR__) || defined(__SPIRV__))
   return __spirv_ocl_printf(__format, args...);
@@ -88,6 +102,11 @@ int printf(const FormatT *__format, Args... args) {
 #endif // defined(__SYCL_DEVICE_ONLY__) && (defined(__SPIR__) ||
        // defined(__SPIRV__))
 }
+
+#undef __SYCL_PRINTF_FORMAT_ATTR
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 namespace native {
 
