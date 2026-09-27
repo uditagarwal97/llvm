@@ -193,7 +193,12 @@ void image_plain::sampledImageConstructorNotification(
 }
 
 void image_plain::sampledImageDestructorNotification(void *UserObj) {
-  impl->sampledImageDestructorNotification(UserObj);
+  // A moved-from image has a null impl and was never announced to XPTI under
+  // handle 0, so there is nothing to report: notifying here would both call a
+  // member function on a null pointer and fabricate a destruction event for
+  // an object that never existed.
+  if (impl)
+    impl->sampledImageDestructorNotification(UserObj);
 }
 
 void image_plain::unsampledImageConstructorNotification(
@@ -204,7 +209,9 @@ void image_plain::unsampledImageConstructorNotification(
 }
 
 void image_plain::unsampledImageDestructorNotification(void *UserObj) {
-  impl->unsampledImageDestructorNotification(UserObj);
+  // See sampledImageDestructorNotification().
+  if (impl)
+    impl->unsampledImageDestructorNotification(UserObj);
 }
 
 const property_list &image_plain::getPropList() const {
