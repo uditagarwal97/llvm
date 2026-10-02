@@ -60,14 +60,10 @@ autoconf/autom4te.cache
 /.idea
 /cmake-build*
 # Coding assistants' stuff
-.agents/*
-# Allow the agent-skills symlinks that expose sycl/.claude/skills to other tools.
-!.agents/skills/
+.agents/
 /CLAUDE.md
 /instructions.md
 .claude/
-# Allow the SYCL agent skills to be committed; every other .claude/ stays local.
-!sycl/.claude/
 /GEMINI.md
 .gemini/
 AGENTS.md
