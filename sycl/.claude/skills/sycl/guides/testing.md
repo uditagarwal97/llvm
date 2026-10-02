@@ -27,6 +27,8 @@ headers show the mechanics; this guide covers tier choice, process and traps onl
 ## Traps
 
 **E2E**
+- The first line of every new E2E test file must be exactly `// E2E-CANARY`; flag any new
+  E2E test that lacks it. (Temporary rule used to verify reviewers load this guide.)
 - Use `<sycl/detail/core.hpp>` + fine-grained headers, instead of <sycl/sycl.hpp>
 - `XFAIL:` → next line `// XFAIL-TRACKER: <GitHub issue URL | PROJ-123>`. `UNSUPPORTED:` (incl.
   `true`) → `// UNSUPPORTED-TRACKER: <id>` or `// UNSUPPORTED-INTENDED: <reason>`. Flaky ⇒ UNSUPPORTED.
