@@ -205,6 +205,11 @@ ur_result_t ur_platform_handle_t_::initialize() {
   ZeDriverApiVersion = std::to_string(ZE_MAJOR_VERSION(ZeApiVersion)) + "." +
                        std::to_string(ZE_MINOR_VERSION(ZeApiVersion));
 
+  // Counter-based events became part of the core API in Level Zero spec
+  // version 1.15; drivers reporting an older API version only support them
+  // through the deprecated ZEX_counter_based_event extension.
+  ZeCounterBasedEventsCoreApiSupported = ZeApiVersion >= ZE_API_VERSION_1_15;
+
   // Cache driver extension properties
   uint32_t Count = 0;
   ZE2UR_CALL(zeDriverGetExtensionProperties, (ZeDriver, &Count, nullptr));
@@ -817,6 +822,14 @@ ur_result_t ur_platform_handle_t_::initialize() {
 
   ZeDeviceVectorWidthExt.Supported =
       ZeDeviceVectorWidthExt.zeDeviceGetVectorWidthPropertiesExt != nullptr;
+
+  ZE_CALL_NOCHECK(zeDriverGetExtensionFunctionAddress,
+                  (ZeDriver, "zeDeviceGetPriorityLevels",
+                   reinterpret_cast<void **>(
+                       &ZeQueuePriorityExt.zeDeviceGetPriorityLevels)));
+
+  ZeQueuePriorityExt.Supported =
+      ZeQueuePriorityExt.zeDeviceGetPriorityLevels != nullptr;
   return UR_RESULT_SUCCESS;
 }
 

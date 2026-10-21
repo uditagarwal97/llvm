@@ -83,6 +83,13 @@ struct ur_platform_handle_t_ : ur::level_zero::ur_object_t, public ur_platform {
   bool ZeLUIDSupported{false};
   bool ZeEventSyncModeSupported{false};
 
+  // Counter-based events (ze_event_counter_based_desc_t /
+  // zeEventCounterBasedCreate) are part of the core Level Zero API since spec
+  // version 1.15. On older drivers only the deprecated
+  // ZEX_counter_based_event extension (zexCounterBasedEventCreate2) is
+  // available, so callers must fall back to it when this is false.
+  bool ZeCounterBasedEventsCoreApiSupported{false};
+
   // Cache UR devices for reuse
   std::vector<std::unique_ptr<ur_device_handle_t_>> URDevicesCache;
   ur_shared_mutex URDevicesCacheMutex;
@@ -305,6 +312,13 @@ struct ur_platform_handle_t_ : ur::level_zero::ur_object_t, public ur_platform {
         ze_device_handle_t, uint32_t *,
         ze_device_vector_width_properties_ext_t *) = nullptr;
   } ZeDeviceVectorWidthExt;
+
+  // Intel driver extension for queue priority levels, see ze_intel_gpu.h.
+  struct ZeQueuePriorityExtension {
+    bool Supported = false;
+    ze_result_t (*zeDeviceGetPriorityLevels)(ze_device_handle_t, int32_t *,
+                                             int32_t *) = nullptr;
+  } ZeQueuePriorityExt;
 };
 
 } // namespace ur::level_zero
